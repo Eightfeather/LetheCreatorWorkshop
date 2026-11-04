@@ -937,9 +937,18 @@ function pSearchBox(id, placeholder, value) {
   return `<input class="p-search" id="${id}" placeholder="${esc(placeholder)}" value="${esc(value || '')}" autocomplete="off">`;
 }
 
+function pRememberSkillName(el) {
+  const id = String((el && el.dataset && el.dataset.id) || '');
+  const nm = String((el && el.dataset && el.dataset.name) || '').trim();
+  if (!id || !nm) return;
+  S.skillNameCache = S.skillNameCache || {};
+  S.skillNameCache[id] = nm;
+}
+
 function pSkillNameHtml(id) {
   const map = (S.personality && S.personality.skillNames) || {};
-  const nm = map[String(id)];
+  const cache = S.skillNameCache || {};
+  const nm = map[String(id)] || cache[String(id)];
   return nm ? '<span class="pi-name" title="' + esc(nm) + '">· ' + esc(nm) + '</span>' : '<span class="pi-name muted">· 未登记</span>';
 }
 
@@ -1057,7 +1066,10 @@ function pTagChips(list, kind) {
 function pKwChips(list) {
   const cur = new Set((list || []).map((x) => String(x || '').trim()).filter(Boolean));
   const choices = pTagChoices('kw');
-  return `<span class="p-chips p-kwchips">${choices.map((c) => `<button type="button" class="p-kwchip${cur.has(String(c.id)) ? ' on' : ''}" data-act="p-kw-toggle" data-id="${esc(c.id)}" title="${esc(c.id)}">${esc(pShort(c.zh || c.id, 10))}</button>`).join('')}</span>`;
+  return `<div class="p-tag-block">
+    <div class="p-tag-line"><span class="p-tag-mini">属性</span><span class="p-tag-body p-chips p-kwchips">${choices.map((c) => `<button type="button" class="p-kwchip${cur.has(String(c.id)) ? ' on' : ''}" data-act="p-kw-toggle" data-id="${esc(c.id)}" title="${esc(c.id)}">${esc(pShort(c.zh || c.id, 10))}</button>`).join('')}</span></div>
+    <div class="p-tag-line"><span class="p-tag-mini"></span><span class="p-tag-body muted">点击亮/暗切换这 7 个基础属性词条</span></div>
+  </div>`;
 }
 
 /* 单位/阵营词条：输入 + 模糊搜索，选中即加（最多 10 条） */
@@ -1082,16 +1094,14 @@ function pRefreshTagHits(kind) {
 
 function pTagSearch(list, kind) {
   const cur = (list || []).map((x) => String(x || '').trim()).filter(Boolean);
-  const choices = pTagChoices(kind);
-  const q = String((S.pTagQ && S.pTagQ[kind]) || '').trim().toLowerCase();
-  const used = new Set(cur);
-  const hits = choices
-    .filter((c) => !used.has(String(c.id)))
-    .filter((c) => !q || String(c.id).toLowerCase().includes(q) || String(c.zh || '').toLowerCase().includes(q))
-    .slice(0, 8);
-  return `${pTagChips(cur, kind)}
-    <input class="p-search p-tagq" id="p-tagq-${kind}" data-tagq="${kind}" placeholder="输入${kind === 'unit' ? '单位' : '阵营'}词条名称或 id 搜索（已选 ${cur.length}/10）" value="${esc((S.pTagQ && S.pTagQ[kind]) || '')}" autocomplete="off" ${cur.length >= 10 ? 'disabled' : ''}>
-    <span class="p-chips p-taghits" id="p-taghits-${kind}">${hits.map((c) => `<button type="button" class="p-taghit" data-act="p-tag-add2" data-kind="${kind}" data-id="${esc(c.id)}">${esc(pShort(c.zh || c.id, 12))}</button>`).join('') || (q ? '<span class="muted">没有匹配</span>' : '')}</span>`;
+  const q = String((S.pTagQ && S.pTagQ[kind]) || '').trim();
+  const label = kind === 'unit' ? '单位' : '阵营';
+  const full = cur.length >= 10;
+  return `<div class="p-tag-block">
+    <div class="p-tag-line"><span class="p-tag-mini">已带</span><span class="p-tag-body">${pTagChips(cur, kind)}</span></div>
+    <div class="p-tag-line"><span class="p-tag-mini">搜索</span><span class="p-tag-body"><input class="p-search p-tagq" id="p-tagq-${kind}" data-tagq="${kind}" placeholder="输入${label}词条名称或 id（已选 ${cur.length}/10）" value="${esc(q)}" autocomplete="off" ${full ? 'disabled' : ''}></span></div>
+    <div class="p-tag-line"><span class="p-tag-mini">备选</span><span class="p-tag-body p-chips p-taghits" id="p-taghits-${kind}">${pTagHitsHtml(kind)}</span></div>
+  </div>`;
 }
 
 /* 被动并入人格页（文档 17 第 6 条）：战斗被动 / 支援被动 · 同步等级 N，加入前用下拉切级别 */
@@ -1119,35 +1129,47 @@ function pPassiveSection(st, resHtml) {
     <div class="hint muted">被动默认写入同步等级 4（私服默认全员同步 4）。</div>`);
 }
 
-/* 查看源代码：整块替换式页面（文档 12 条第 4.3 项） */
-function pSourceDocText(res) {
-  return JSON.stringify({ entity: res.entity, locale: res.locale }, null, 2);
-}
+/* 查看源代码：整块替换式页面，显示两份原版文件（人格数据 / 被动挂接） */
 async function openPersonalitySource() {
   if (!S.personality) return;
   const scroller = document.querySelector('.p-main');
   S.pSourceScroll = scroller ? scroller.scrollTop : 0;
   const res = await api('/api/personality/source?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(S.personality.id));
-  S.pSource = { id: S.personality.id, mode: 'view', text: pSourceDocText(res), locked: Boolean(res.locked), draft: '' };
+  S.pSource = {
+    id: S.personality.id,
+    mode: 'view',
+    tab: 'entity',
+    locked: Boolean(res.locked),
+    entityDocRel: res.entityDocRel || ('custom_limbus_data/personality/' + res.id + '.json'),
+    passiveDocRel: res.passiveDocRel || ('custom_limbus_data/personality-passive/' + res.id + '.json'),
+    docs: { entity: res.entityDocText || '{}', passive: res.passiveDocText || '{"list":[]}' },
+  };
   render();
 }
 function renderPersonalitySourcePage() {
   const sc = S.pSource;
   const editing = sc.mode === 'edit' && !sc.locked;
   const state = sc.locked ? '已锁定：源码被手动改过，表单编辑已停用' : editing ? '编辑中（未保存）' : '只读预览';
+  const tab = sc.tab === 'passive' ? 'passive' : 'entity';
+  const rel = tab === 'entity' ? sc.entityDocRel : sc.passiveDocRel;
   return `<div class="p-source-page">
   <div class="ps-head">
     <button class="btn ghost sm" data-act="p-source-back">← 返回人格编辑</button>
     <span class="ps-title">源代码 <b>${esc(S.selected)}</b> · ${esc(sc.id)}</span>
     <span class="ps-state ${sc.locked ? 'lock' : editing ? 'edit' : ''}">${state}</span>
     <span class="ps-acts">${editing
-      ? '<button class="btn ghost sm" data-act="p-source-cancel">取消修改</button><button class="btn primary sm" data-act="p-source-save">保存源码</button>'
+      ? '<button class="btn ghost sm" data-act="p-source-cancel">取消修改</button><button class="btn primary sm" data-act="p-source-save">保存两份文件</button>'
       : (sc.locked ? '' : '<button class="btn primary sm" data-act="p-source-edit">手动修改</button>')}</span>
   </div>
-  <div class="ps-body">
-    <textarea id="p-source-text" class="ps-text" spellcheck="false" wrap="off"${editing ? '' : ' readonly'}>${esc(sc.text)}</textarea>
+  <div class="ps-tabs">
+    <button class="ps-tab${tab === 'entity' ? ' on' : ''}" data-act="p-source-tab" data-tab="entity">人格数据</button>
+    <button class="ps-tab${tab === 'passive' ? ' on' : ''}" data-act="p-source-tab" data-tab="passive">被动挂接</button>
+    <span class="ps-path muted">${esc(rel)}</span>
   </div>
-  <div class="ps-foot muted">保存会写回实体与本地化文件（字段校验仍生效）。保存后该人格标记为「源码已手改」，表单编辑将被锁定。</div>
+  <div class="ps-body">
+    <textarea id="p-source-text" class="ps-text" spellcheck="false" wrap="off"${editing ? '' : ' readonly'}>${esc(sc.docs[tab])}</textarea>
+  </div>
+  <div class="ps-foot muted">这两份就是 Mod 里的原版文件：<b>人格数据</b> <code>custom_limbus_data/personality/&lt;id&gt;.json</code>（{&quot;list&quot;:[…]}）、<b>被动挂接</b> <code>custom_limbus_data/personality-passive/&lt;id&gt;.json</code>。保存时字段校验仍生效；保存后该人格标记为「源码已手改」，表单编辑被锁定。</div>
 </div>`;
 }
 
@@ -1181,7 +1203,7 @@ function renderPersonalityDetail() {
   const passiveCounts = (st.passives && st.passives.counts) || { battle: 0, supporter: 0 };
   const skillCount = (e.attributeList || []).length;
   const res = S.pSearch || {};
-  const results = (kind) => (res[kind] || []).slice(0, 20).map((r) => `<button class="p-res-item" data-act="p-pick-${kind}" data-id="${esc(r.id)}">
+  const results = (kind) => (res[kind] || []).slice(0, 20).map((r) => `<button class="p-res-item" data-act="p-pick-${kind}" data-id="${esc(r.id)}" data-name="${esc(r.name || '')}">
       <span>${esc(r.name || r.id)}</span><small>${esc(r.id)} · ${esc(r.source)}</small></button>`).join('');
   const rankList = (() => { const cur = Number(e.rank); const list = [1, 2, 3]; if (Number.isFinite(cur) && cur > 0 && !list.includes(cur)) list.push(cur); return list; })();
   const rankPicker = `<span class="p-rank-pick">${[1, 2, 3].map((r) => `<button type="button" class="p-rank-opt rank-${r}${Number(e.rank) === r ? ' on' : ''}" data-act="p-rank-set" data-rank="${r}" title="稀有度 ${esc(pRankLabel(r))}"></button>`).join('')}</span>`;
@@ -1259,12 +1281,10 @@ function renderPersonalityDetail() {
       ${pSection('技能', `<div class="p-search-row">${pSearchBox('p-skill-q', '输入技能 id 或名称搜索（原版 + 全部 Mod）', S.pSkillQ)}</div>
         <div class="p-res-list" id="p-skill-res">${results('skill')}</div>
         ${pSkillRows(e)}
-        <button class="btn ghost sm" data-act="p-slot-add" data-kind="skill">＋ 再加一条技能</button>
         <div class="p-divider"><span>守备技能</span></div>
         <div class="p-search-row">${pSearchBox('p-def-q', '输入守备技能 id 搜索', S.pDefQ)}</div>
         <div class="p-res-list" id="p-def-res">${results('def')}</div>
-        ${pDefRows(e)}
-        <button class="btn ghost sm" data-act="p-slot-add" data-kind="def">＋ 再加一条守备技能</button>`)}
+        ${pDefRows(e)}`)}
 
       ${pPassiveSection(st, results('passive'))}
 
@@ -1274,9 +1294,9 @@ function renderPersonalityDetail() {
         <div class="p-hint muted">进入战斗时按默认强度生效；用上面的搜索框添加条目。</div>`)}
 
       ${pSection('词条', `
-        ${pRow(P_TAG_TITLES.unit, pTagSearch(e.unitKeywordList, 'unit'), '只能选已注册词条')}
-        ${pRow(P_TAG_TITLES.assoc, pTagSearch(e.associationList, 'assoc'), '只能选已注册词条')}
-        ${pRow(P_TAG_TITLES.kw, pKwChips(e.skillKeywordList), '点击切换这 7 个基础属性')}
+        <div class="p-tag-group"><div class="p-sub-head">${P_TAG_TITLES.unit}<span class="muted"> · 只能选已注册词条</span></div>${pTagSearch(e.unitKeywordList, 'unit')}</div>
+        <div class="p-tag-group"><div class="p-sub-head">${P_TAG_TITLES.assoc}<span class="muted"> · 只能选已注册词条</span></div>${pTagSearch(e.associationList, 'assoc')}</div>
+        <div class="p-tag-group"><div class="p-sub-head">${P_TAG_TITLES.kw}</div>${pKwChips(e.skillKeywordList)}</div>
       `)}
 
       
@@ -1429,7 +1449,7 @@ const pSearchTimers = {};function pSearchUnits(kind, q) {
 function pResHtml(kind) {
   const rows = (S.pSearch || {})[kind] || [];
   if (!rows.length) return '';
-  return rows.map((r) => `<button class="p-res-item" data-act="p-pick-${kind}" data-id="${esc(r.id)}">
+  return rows.map((r) => `<button class="p-res-item" data-act="p-pick-${kind}" data-id="${esc(r.id)}" data-name="${esc(r.name || '')}">
       <span>${esc(r.name || r.id)}</span><small>${esc(r.id)} · ${esc(r.source)}</small></button>`).join('');
 }
 
@@ -1659,16 +1679,31 @@ const actions = {
     if (ta) { ta.focus(); ta.setSelectionRange(0, 0); }
     toast('已进入编辑：保存时会写回实体与本地化', 'warn');
   },
+  'p-source-tab': (el) => {
+    if (!S.pSource) return;
+    const ta = $('#p-source-text');
+    if (ta) S.pSource.docs[S.pSource.tab === 'passive' ? 'passive' : 'entity'] = ta.value;
+    S.pSource.tab = el.dataset.tab === 'passive' ? 'passive' : 'entity';
+    render();
+  },
   'p-source-save': async () => {
     const ta = $('#p-source-text');
     if (!ta) return;
-    if (S.pSource) S.pSource.text = ta.value;
-    let doc; try { doc = JSON.parse(ta.value); } catch { toast('JSON 解析失败，请检查括号与引号', 'error'); return; }
+    if (S.pSource) S.pSource.docs[S.pSource.tab === 'passive' ? 'passive' : 'entity'] = ta.value;
+    const docs = (S.pSource && S.pSource.docs) || {};
+    for (const k of ['entity', 'passive']) {
+      try { JSON.parse(docs[k] || ''); } catch { toast((k === 'entity' ? '人格数据' : '被动挂接') + ' JSON 解析失败，请检查括号与引号', 'error'); return; }
+    }
     try {
-      await api('/api/personality/source', { method: 'POST', body: { name: S.selected, id: S.personality.id, entity: doc.entity, locale: doc.locale } });
-      closeModal(); toast('已写回并保存', 'ok');
+      await api('/api/personality/source', { method: 'POST', body: {
+        name: S.selected, id: S.personality.id,
+        entityText: docs.entity, passiveText: docs.passive,
+      } });
+      toast('两份文件已写回并保存', 'ok');
       S.pSource = null;
-      await loadPersonality(S.selected, S.personality.id); render();
+      await loadPersonality(S.selected, S.personality.id);
+      await loadPersonalityExtra();
+      render();
     } catch (e) { toast(e.message, 'error'); }
   },
   'p-del': () => {
@@ -1987,6 +2022,7 @@ const actions = {
     input.addEventListener('blur', () => { commit(); });
   },
   'p-pick-skill': async (el) => {
+    pRememberSkillName(el);
     const id = Number(el.dataset.id);
     const list = (pEntity().attributeList || []).map((r) => ({ ...r }));
     if (list.some((r) => Number(r.skillId) === id)) { toast('这个技能已经在列表里了', 'warn'); return; }
@@ -2003,6 +2039,7 @@ const actions = {
     render();
   },
   'p-pick-def': async (el) => {
+    pRememberSkillName(el);
     const id = Number(el.dataset.id);
     const list = (pEntity().defenseSkillIDList || []).map(Number);
     if (list.includes(id)) { toast('这个守备技能已经在列表里了', 'warn'); return; }

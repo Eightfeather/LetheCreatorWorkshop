@@ -461,6 +461,8 @@ export function buildApi(ctx) {
       id: body.id,
       entity: body.entity,
       locale: body.locale,
+      entityText: body.entityText,
+      passiveText: body.passiveText,
     });
     autosave.touch(String(body.name || ''));
     return { ok: true, ...res };

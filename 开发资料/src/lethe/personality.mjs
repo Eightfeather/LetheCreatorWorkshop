@@ -722,11 +722,32 @@ export async function passiveEdit(letheRoot, { name, id, kind = 'battle', op = '
   return { kind, level: lv, passiveId: String(passiveId || ''), wrote: wrote.written };
 }
 
-/** 源码页：读人格实体 + locale + 被动挂接 + 所在文件 */
+/** 源码页：读「人格数据文件」与「被动挂接文件」两份原样 JSON + 定位信息 */
 export function personalitySource(letheRoot, name, id) {
   const p = pIdOf(id);
   const one = getPersonalityAny(letheRoot, name, p);
+  const md = modDirSafe(letheRoot, name);
   const passives = passiveSetOf(letheRoot, name, p);
+
+  /* 人格数据文件：原版人格在 Mod 里还没有文件 → 用「如果导出会写成什么」的形态给出 */
+  let entityDoc = null;
+  let entityDocRel = one.rel || '';
+  if (!one.vanilla && one.rel) {
+    entityDoc = readJson(join(md, one.rel.split('/').join('\\')), null);
+  }
+  if (!entityDoc) {
+    entityDoc = { list: [one.entity] };
+    if (!entityDocRel) entityDocRel = 'custom_limbus_data/personality/' + p + '.json';
+  }
+
+  /* 被动挂接文件：存在则原样返回整份（可能含其他人格），不存在则给空骨架 */
+  let passiveDoc = null;
+  let passiveDocRel = passives.rel || ('custom_limbus_data/personality-passive/' + p + '.json');
+  if (passives.rel) passiveDoc = readJson(join(md, passives.rel.split('/').join('\\')), null);
+  if (!passiveDoc) {
+    passiveDoc = { list: [{ personalityID: Number(p), battlePassiveList: [], supporterPassiveList: [] }] };
+  }
+
   return {
     id: p,
     entityRel: one.rel || '',
@@ -736,17 +757,87 @@ export function personalitySource(letheRoot, name, id) {
     passives: passives.entity || null,
     passivesRel: passives.rel || '',
     vanilla: Boolean(one.vanilla),
+    entityDoc,
+    entityDocText: JSON.stringify(entityDoc, null, 2),
+    entityDocRel,
+    passiveDoc,
+    passiveDocText: JSON.stringify(passiveDoc, null, 2),
+    passiveDocRel,
   };
 }
 
-/** 源码页保存：整份替换实体与 locale（字段仍走白名单校验） */
-export function savePersonalitySource(letheRoot, { name, id, entity, locale }) {
+/* 校验并抽出「这份人格」的实体（允许文件里有其他实体） */
+function pickEntityFromDoc(doc, p) {
+  const list = Array.isArray(doc) ? doc : (doc && Array.isArray(doc.list) ? doc.list : null);
+  if (!list) bad('人格数据必须是 {"list":[ ... ]} 或数组');
+  const hit = list.find((e) => e && String(e.id) === String(p));
+  if (!hit) bad('这份数据里没有 id=' + p + ' 的人格实体');
+  return hit;
+}
+
+/* 校验被动挂接文档：personalityID / level / passiveIDList */
+function checkPassiveDoc(doc, p) {
+  const list = Array.isArray(doc) ? doc : (doc && Array.isArray(doc.list) ? doc.list : null);
+  if (!list) bad('被动挂接必须是 {"list":[ {personalityID, battlePassiveList, supporterPassiveList} ]}');
+  if (!list.some((e) => e && String(e.personalityID) === String(p))) bad('被动挂接里没有 personalityID=' + p + ' 的条目');
+  for (const e of list) {
+    if (!e || typeof e !== 'object') bad('被动挂接的每一项目都必须是对象');
+    for (const k of ['battlePassiveList', 'supporterPassiveList']) {
+      const groups = e[k];
+      if (groups === undefined) continue;
+      if (!Array.isArray(groups)) bad(k + ' 必须是数组');
+      for (const g of groups) {
+        if (!g || typeof g !== 'object') bad(k + ' 的每一项必须是 {level, passiveIDList}');
+        const lv = Number(g.level);
+        if (!intIn(lv, 1, 4)) bad(k + ' 的 level 只能是 1–4');
+        if (!Array.isArray(g.passiveIDList)) bad(k + ' 的 passiveIDList 必须是数组');
+        for (const pid of g.passiveIDList) {
+          if (!/^\d{4,12}$/.test(String(pid))) bad('被动 id 必须是 4–12 位数字：' + pid);
+        }
+      }
+    }
+  }
+  return list;
+}
+
+/** 源码页保存：两份文件按原版位置与结构写回（实体仍走白名单校验） */
+export function savePersonalitySource(letheRoot, { name, id, entity, locale, entityText, passiveText }) {
   const modName = cleanName(name, 'Mod 名称');
+  const p = pIdOf(id);
+
+  let ent = entity && typeof entity === 'object' ? entity : null;
+  if (!ent && typeof entityText === 'string' && entityText.trim()) {
+    let doc = null;
+    try { doc = JSON.parse(entityText); } catch { bad('人格数据 JSON 解析失败（检查括号与引号）'); }
+    ent = pickEntityFromDoc(doc, p);
+  }
+
+  let passiveList = null;
+  if (typeof passiveText === 'string' && passiveText.trim()) {
+    let doc = null;
+    try { doc = JSON.parse(passiveText); } catch { bad('被动挂接 JSON 解析失败（检查括号与引号）'); }
+    passiveList = checkPassiveDoc(doc, p);
+  }
+
   const patch = {};
-  if (entity && typeof entity === 'object') patch.entity = entity;
+  if (ent) patch.entity = ent;
   if (locale && typeof locale === 'object') patch.locale = locale;
   const result = savePersonality(letheRoot, { name, id, ...patch, ignoreLock: true });
-  setSourceLocked(letheRoot, modName, String(id), true);
-  return { ...result, locked: true };
+
+  if (passiveList) {
+    const md = modDirSafe(letheRoot, name);
+    ensureLayout(md, 'passive');
+    const rel = 'custom_limbus_data/personality-passive/' + p + '.json';
+    writeFilesTransactional({
+      modDir: md,
+      files: [{ rel, content: JSON.stringify({ list: passiveList }, null, 2) }],
+      root: letheRoot,
+      mod: modName,
+      backup: true,
+    });
+  }
+
+  setSourceLocked(letheRoot, modName, String(p), true);
+  return { ...result, locked: true, wrotePassive: Boolean(passiveList) };
 }
 

@@ -1,5 +1,5 @@
-import { join } from 'node:path';
-import { readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { readdirSync, existsSync } from 'node:fs';
 import { readJson } from '../atomic.mjs';
 
 /**
@@ -14,6 +14,44 @@ const RANK_LABEL = { 1: '0', 2: '00', 3: '000' };
 let cache = null;
 let cacheAt = 0;
 const TTL = 60 * 1000;
+
+/* 第二来源：私服自带的汉化包 LimbusCompany_Data/Lang/LLC_zh-CN（{dataList:[{id,content}]}）。
+   只用来补 uiList 里缺的中文名，不覆盖 uiList 已有条目。 */
+function langDirs(letheRoot) {
+  const out = [];
+  const gameRoot = dirname(dirname(dirname(letheRoot)));
+  for (const p of [join(gameRoot, 'LimbusCompany_Data', 'Lang', 'LLC_zh-CN'), join(gameRoot, 'Lang', 'LLC_zh-CN')]) {
+    if (!out.includes(p) && existsSync(p)) out.push(p);
+  }
+  return out;
+}
+
+function readLangNames(letheRoot, kind) {
+  const prefix = kind === 'unit' ? ['UnitKeyword_'] : ['associationName_', 'formation_name_filter_Etc_'];
+  const map = {};
+  for (const dir of langDirs(letheRoot)) {
+    let files = [];
+    try {
+      files = readdirSync(dir).filter((f) => /^(UnitKeyword|AssociationName|FormationNameEtcFilter)/i.test(f) && /\.json$/i.test(f));
+    } catch { continue; }
+    for (const f of files) {
+      const doc = readJson(join(dir, f), null);
+      const list = (doc && Array.isArray(doc.dataList) && doc.dataList) || [];
+      for (const e of list) {
+        const id = String((e && e.id) || '');
+        const text = String((e && e.content) || '');
+        if (!id || !text) continue;
+        for (const pre of prefix) {
+          if (!id.startsWith(pre)) continue;
+          const key = id.slice(pre.length);
+          if (!key || /_title$|_desc$/i.test(key)) continue;
+          if (!map[key]) map[key] = text.replace(/<[^>]*>/g, '').trim();
+        }
+      }
+    }
+  }
+  return map;
+}
 
 export function i18nTables(letheRoot, force = false) {
   const now = Date.now();
@@ -53,6 +91,29 @@ export function i18nTables(letheRoot, force = false) {
     else if (k.startsWith('associationName_')) put(association, assocDeprecated, k.slice('associationName_'.length), text);
     else if (k.startsWith('formation_name_filter_Etc_')) put(association, assocDeprecated, k.slice('formation_name_filter_Etc_'.length), text);
   }
+  /* 汉化包兜底：uiList 里没有的 id 用它补中文名（不覆盖已有） */
+  const langUnit = readLangNames(letheRoot, 'unit');
+  const langAssoc = readLangNames(letheRoot, 'assoc');
+  const fillLang = (map, lang) => {
+    let n = 0;
+    for (const [id, zh] of Object.entries(lang)) {
+      if (!zh) continue;
+      if (!(id in map) || !map[id]) { map[id] = zh; n += 1; }
+    }
+    return n;
+  };
+  const langFilledUnit = fillLang(unitKeyword, langUnit);
+  const langFilledAssoc = fillLang(association, langAssoc);
+
+  /* 交叉补齐：「单位关键词」与「阵营」共用同一套 id 空间（如 FAMILY_GA / MOLAR 在
+     UnitKeyword_ 里才有中文），两边互填缺失，避免同一个 id 一边有名字一边空着。 */
+  for (const [id, zh] of Object.entries(unitKeyword)) {
+    if (zh && !association[id]) association[id] = zh;
+  }
+  for (const [id, zh] of Object.entries(association)) {
+    if (zh && !unitKeyword[id]) unitKeyword[id] = zh;
+  }
+
   const unitUse = {};
   const assocUse = {};
   const scanDoc = (doc) => {
@@ -85,7 +146,12 @@ export function i18nTables(letheRoot, force = false) {
   try { mods = readdirSync(join(letheRoot, 'mods'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { mods = []; }
   for (const m of mods) scanDir(join(letheRoot, 'mods', m, 'custom_limbus_data', 'personality'));
 
-  cache = { sins, skillKeywords, rankLabel: RANK_LABEL, unitKeyword, association, unitUse, assocUse, unitDeprecated, assocDeprecated, at: new Date().toISOString() };
+  cache = {
+    sins, skillKeywords, rankLabel: RANK_LABEL, unitKeyword, association, unitUse, assocUse,
+    unitDeprecated, assocDeprecated,
+    lang: { dirs: langDirs(letheRoot), filledUnit: langFilledUnit, filledAssoc: langFilledAssoc },
+    at: new Date().toISOString(),
+  };
   cacheAt = now;
   return cache;
 }

@@ -1621,3 +1621,20 @@ select option { background: #141110; color: #E8DCC6; }
 .pi-name { margin-left: 6px; font-size: 12px; color: #C6A15B; }
 .pi-name.muted { color: #8A7C68; }
 .p-taghit.dep { opacity: .62; text-decoration: line-through; }
+
+/* v0.9.7 词条三段布局（已带 / 搜索 / 备选 各占一行，组间分隔） */
+.p-tag-group { border:1px solid var(--line, #2a231c); border-radius:6px; padding:8px 10px; margin-bottom:8px; background:rgba(0,0,0,.12); }
+.p-tag-group .p-sub-head { font-size:12.5px; color:var(--gold, #C6A15B); margin-bottom:6px; letter-spacing:.2px; }
+.p-tag-block { display:flex; flex-direction:column; gap:6px; }
+.p-tag-line { display:flex; align-items:flex-start; gap:8px; }
+.p-tag-mini { flex:0 0 34px; font-size:11.5px; color:#A79780; padding-top:3px; }
+.p-tag-body { flex:1 1 auto; min-width:0; }
+.p-tag-body.p-chips, .p-tag-body .p-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.p-taghits { max-height:88px; overflow-y:auto; overflow-x:hidden; padding-right:2px; }
+.p-tagq { width:100%; }
+
+/* v0.9.7 源码页两页签（人格数据 / 被动挂接） */
+.ps-tabs { display:flex; align-items:center; gap:8px; padding:6px 0 8px; border-bottom:1px solid var(--line, #2a231c); margin-bottom:8px; }
+.ps-tab { background:transparent; border:1px solid var(--line, #2a231c); color:#A79780; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12.5px; }
+.ps-tab.on { color:#F7E7C4; border-color:var(--gold, #C6A15B); background:rgba(198,161,91,.10); }
+.ps-path { margin-left:auto; font-size:11.5px; }
