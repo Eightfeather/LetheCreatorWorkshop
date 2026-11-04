@@ -67,6 +67,7 @@ export function stmtText(b) {
     return `${b.n}(${list.join(',')})`;
   }
   if (b.k === 'assign') return `${b.var || 'VALUE_0'}:${valueText(b.val)}`;
+  if (b.k === 'raw') return String(b.text || '');
   if (b.k === 'if' || b.k === 'ifnot') {
     const kw = b.k === 'ifnot' ? 'IFNOT' : 'IF';
     const kids = (b.body || []).map(stmtText).filter(Boolean).join(':');

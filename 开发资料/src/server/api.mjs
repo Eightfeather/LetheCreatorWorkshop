@@ -7,7 +7,7 @@ import { configPath, rememberRoot, saveConfig } from '../config.mjs';
 import { locate, scanStats } from '../locate.mjs';
 import { createMod, disableMod, dirOf, enableMod, listMods, modDir, readModPayload, resolveModDir } from '../lethe/mods.mjs';
 import { listDlls, setDllEnabled } from '../lethe/dlls.mjs';
-import { appearanceOptions, writePortrait, deletePersonality, passiveEdit, personalitySource, savePersonalitySource, isSourceLocked,  createPersonality, getPersonality, getPersonalityAny, listPersonalities, materializeVanilla, personalityIdTaken, personalityStats, savePersonality} from '../lethe/personality.mjs';
+import { appearanceOptions, appearanceCatalog, writePortrait, deletePersonality, passiveEdit, personalitySource, savePersonalitySource, isSourceLocked,  createPersonality, getPersonality, getPersonalityAny, listPersonalities, materializeVanilla, personalityIdTaken, personalityStats, savePersonality} from '../lethe/personality.mjs';
 import { i18nTables } from '../knowledge/personality-i18n.mjs';
 import { isUnitIdTaken, searchUnits, unitCounts } from '../lethe/units.mjs';
 import { vanillaIndex } from '../lethe/vanilla.mjs';
@@ -23,15 +23,19 @@ import {
   updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram } from '../lethe/meta.mjs';
 import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex } from '../lethe/passives.mjs';
 import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex } from '../lethe/buffs.mjs';
-import { analyzeDescription, buffIconIndex, keywordTables, toGameText } from '../lethe/keywords.mjs';
+import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, toGameText } from '../lethe/keywords.mjs';
 import { TIMING_ARGS } from '../knowledge/timing-args.mjs';
+import { canonicalCode, parseScripts } from '../lethe/program-parse.mjs';
+import { applyMd, applyMdAll, deleteMd, fromGameEntity, getMd, listMd, mdSchemas, nextMdId, removeLanded, saveMd } from '../lethe/mdtables.mjs';
+import { pickKinds, pickRecord, pickSearch } from '../lethe/picker.mjs';
+/* MD_IMPORTED_v0_9_0 */
 import { ARG_ENUMS } from '../knowledge/arg-enums.mjs';
 import { ARG_OPTIONAL } from '../knowledge/arg-optional.mjs';
 import { COMMANDS, ACQUIRERS, CONSEQUENCES, modularStats } from '../knowledge/modular-tables.mjs';
 import { SCOPES, TIMING_SCOPE, COMMAND_SCOPE, TIMING_CONTAINERS, COMMAND_CONTAINERS } from '../knowledge/scopes.mjs';
 import { createApi } from './api-shared.mjs';
 import { compileProgram, compileTimingRows } from '../lethe/program.mjs';
-import { saveCompiledBuff, saveCompiledPassive, saveCompiledSkill } from '../lethe/apply.mjs';
+import { saveCompiledBuff, saveCompiledPassive, saveCompiledSkill, savePassiveFields, saveSkillFields, saveBuffScripts, saveBuffFields } from '../lethe/apply.mjs';
 
 function ensureRoot(state) {
   if (!state || !state.letheRoot) {
@@ -40,6 +44,77 @@ function ensureRoot(state) {
     throw e;
   }
   return state.letheRoot;
+}
+
+/** 模块 → 编译后的脚本（用于识别「这段脚本是哪个模块产出的」） */
+const VANILLA_LOCALE_CACHE = new Map();
+
+/** 读取 dumpedData 里的原版 locale 表（按 mtime 缓存）。 */
+function vanillaLocaleFile(letheRoot, fileName) {
+  const p = join(letheRoot, 'dumpedData', 'limbus_locale', 'EN', fileName);
+  let mtime = 0;
+  try { mtime = fs.statSync(p).mtimeMs; } catch { return null; }
+  const hit = VANILLA_LOCALE_CACHE.get(p);
+  if (hit && hit.mtime === mtime) return hit.data;
+  try {
+    const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+    VANILLA_LOCALE_CACHE.set(p, { data, mtime });
+    return data;
+  } catch { return null; }
+}
+
+/** 本 Mod 没覆盖时，用游戏原版文案（bufList 优先，其次 keywordList）。 */
+function vanillaBuffLocale(letheRoot, id) {
+  const buf = vanillaLocaleFile(letheRoot, 'bufList.json');
+  const kw = vanillaLocaleFile(letheRoot, 'keywordList.json');
+  const hit = (buf && buf[id]) || (kw && kw[id]) || null;
+  if (!hit) return null;
+  return { name: String(hit.name || ''), desc: String(hit.desc || '') };
+}
+function isModularScript(text) {
+  return /TIMING:/.test(String(text || ''));
+}
+
+/** 识别技能里已有的 Modular 脚本：技能级（skillData[0]）+ 每枚硬币；并匹配到编辑器内的模块 */
+function skillScriptGroups(letheRoot, entity) {
+  const byCode = moduleCodeIndex(letheRoot);
+  const sd = ((entity && entity.skillData) || [])[0] || {};
+  const wrap = (list) => {
+    const scripts = (list || []).map((x) => String((x && x.scriptName) || '')).filter(Boolean);
+    const modular = scripts.filter(isModularScript);
+    const plain = scripts.filter((x) => !isModularScript(x));
+    const parsed = parseScripts(modular);
+    return {
+      scripts: modular,
+      plain,
+      parsed,
+      matchedModules: modular.map((code) => byCode.get(canonicalCode(code)) || null),
+    };
+  };
+  const groups = [];
+  const top = wrap(sd.abilityScriptList);
+  if (top.scripts.length || top.plain.length) groups.push({ kind: 'skill', label: '技能级', index: -1, ...top });
+  ((sd.coinList) || []).forEach((c, i) => {
+    const g = wrap(c && c.abilityScriptList);
+    if (g.scripts.length || g.plain.length) groups.push({ kind: 'coin', label: '硬币 ' + (i + 1), index: i, ...g });
+  });
+  return groups;
+}
+
+function moduleCodeIndex(letheRoot) {
+  const map = new Map();
+  try {
+    for (const m of listModules(letheRoot)) {
+      if (!m || !m.program) continue;
+      let codes = [];
+      try { codes = compileProgram(m.program); } catch { codes = []; }
+      for (const code of codes) {
+        const key = canonicalCode(code);
+        if (key && !map.has(key)) map.set(key, m.id);
+      }
+    }
+  } catch { /* 模块损坏时忽略，不影响被动读取 */ }
+  return map;
 }
 
 export function buildApi(ctx) {
@@ -312,6 +387,29 @@ export function buildApi(ctx) {
       return { ok: true, characters: idx.characters, personalities: list };
     },
 
+  'GET /api/personality/portrait': (q) => {
+    const name = String(q.get('name') || '');
+    const id = String(q.get('id') || '');
+    const md = resolveModDir(state.letheRoot, name).dir;
+    const dir = join(md, 'custom_sprites');
+    const out = {};
+    for (const kind of ['profile', 'cg']) {
+      if (!fs.existsSync(dir)) break;
+      const hit = fs.readdirSync(dir).find((f) => new RegExp('^' + kind + '_' + id + '\\.(png|webp|jpg|jpeg|gif)$', 'i').test(f));
+      if (!hit) continue;
+      const buf = fs.readFileSync(join(dir, hit));
+      if (buf.length > 16 * 1024 * 1024) continue;
+      const ext = (hit.split('.').pop() || 'png').toLowerCase();
+      const mime = ext === 'webp' ? 'image/webp' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : 'image/png';
+      out[kind] = { file: hit, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64') };
+    }
+    return { ok: true, sprites: out };
+  },
+  'GET /api/personality/appearance-catalog': (q) => {
+    const cid = Number(q.get('characterId') || 0);
+    if (!cid) throw new SafetyError('缺少 characterId');
+    return { ok: true, ...appearanceCatalog(state.letheRoot, cid) };
+  },
   'GET /api/personality/appearance-options': () => {
     ensureRoot(state);
     return { ok: true, options: appearanceOptions(state.letheRoot) };
@@ -536,7 +634,9 @@ export function buildApi(ctx) {
       const one = getSkill(letheRoot, q.get('name'), q.get('id'));
       if (!one) { const e = new Error('找不到这个技能'); e.status = 404; throw e; }
       const lv = (one.locale && one.locale.levelList) || [];
-      const name = (lv[0] && lv[0].name) || (one.locale && one.locale.name) || '';
+      const coinSegs = (x) => (((x || {}).coinlist) || []).reduce((n, c) => n + ((((c || {}).coindescs) || []).filter((d) => String((d || {}).desc || '').trim()).length), 0);
+      const lvPick = (lv.slice().sort((a, b) => (coinSegs(b) - coinSegs(a)) || (String((b || {}).desc || '').length - String((a || {}).desc || '').length) || (Number((a || {}).level || 1) - Number((b || {}).level || 1)))[0]) || {};
+      const name = (lvPick.name) || (one.locale && one.locale.name) || '';
       return {
         ok: true,
         skill: {
@@ -550,6 +650,33 @@ export function buildApi(ctx) {
           code: one.meta.code,
           description: one.meta.description,
           coinDescs: one.meta.coinDescs,
+          descSource: String(one.meta.description || '') ? 'meta' : (String(lvPick.desc || '') ? 'locale' : 'none'),
+          descLevel: Number(lvPick.level || 1),
+          localeDesc: String(lvPick.desc || ''),
+          localeCoinDescs: (((lvPick.coinlist) || []).map((c) => (((c || {}).coindescs) || []).map((d) => String((d || {}).desc || '')).filter(Boolean).join('\n'))),
+          localeCoinSegs: (((lvPick.coinlist) || []).map((c) => (((c || {}).coindescs) || []).filter((d) => String((d || {}).desc || '').trim()).length)),
+          localeText: String(lvPick.desc || '') ? fromGameText(String(lvPick.desc), keywordTables(letheRoot)) : '',
+          localeCoinTexts: (((lvPick.coinlist) || []).map((c) => (((c || {}).coindescs) || [])
+            .map((d) => String((d || {}).desc || '')).filter(Boolean)
+            .map((t) => fromGameText(t, keywordTables(letheRoot))).join('\n'))),
+          fileInfo: (() => {
+            const sd0 = ((((one.entity || {}).skillData) || [])[0]) || {};
+            const coins0 = Array.isArray(sd0.coinList) ? sd0.coinList : [];
+            const op = String(((coins0[0] || {}).operatorType) || 'ADD').toUpperCase();
+            return {
+              basePower: Number(sd0.defaultValue) || 0,
+              coinCount: coins0.length,
+              atkCorrection: Number(sd0.skillLevelCorrection) || 0,
+              targetNum: Number(sd0.targetNum) || 1,
+              physical: String(sd0.atkType || ''),
+              sin: String(sd0.attributeType || ''),
+              sign: op === 'SUB' ? 'negative' : 'positive',
+              defType: String(sd0.defType || ''),
+              skillType: String(one.entity.skillType || ''),
+            };
+          })(),
+          coinTotal: ((((one.entity || {}).skillData) || [])[0] || {}).coinList ? ((((one.entity || {}).skillData) || [])[0].coinList || []).length : 0,
+          scriptGroups: skillScriptGroups(letheRoot, one.entity),
         },
       };
     },
@@ -558,6 +685,17 @@ export function buildApi(ctx) {
       const { letheRoot } = need();
       const created = createSkill(letheRoot, { name: body.name, id: body.id, displayName: body.displayName });
       return { ok: true, skill: { id: created.id, entity: created.entity, locale: created.locale }, written: created.written };
+    },
+
+    'POST /api/skill/state': (body) => {
+      const { letheRoot } = need();
+      const id = String(body.id);
+      const res = saveSkillFields(letheRoot, { name: body.name, id, info: body.info || {} });
+      if (res.changes && res.changes.length) {
+        session.record(body.name, 'skill:' + id, '改技能基础信息 ' + id, res.changes);
+        autosave.touch(body.name);
+      }
+      return { ok: true, info: res.info, session: session.state(body.name) };
     },
 
     'POST /api/skill/meta': (body) => {
@@ -704,18 +842,42 @@ export function buildApi(ctx) {
       const { letheRoot } = need();
       const one = getPassive(letheRoot, q.get('name'), q.get('id'));
       if (!one) { const e = new Error('找不到这个被动'); e.status = 404; throw e; }
+      const localeDescRaw = String((one.locale && one.locale.desc) || '');
+      let descSource = 'meta';
+      let descText = String(one.meta.description || '');
+      if (!descText && localeDescRaw) {
+        try { descText = fromGameText(localeDescRaw, keywordTables(letheRoot)); } catch { descText = localeDescRaw; }
+        descSource = 'locale';
+      }
+      const scripts = Array.isArray(one.entity && one.entity.requireIDList)
+        ? one.entity.requireIDList.map((x) => String(x == null ? '' : x)).filter(Boolean)
+        : [];
+      const parsed = parseScripts(scripts);
+      const byCode = moduleCodeIndex(letheRoot);
+      const matchedModules = scripts.map((code) => byCode.get(canonicalCode(code)) || null);
       return {
         ok: true,
         passive: {
           id: one.id,
+          scripts,
+          parsed,
+          matchedModules,
           rel: one.rel,
           name: (one.locale && one.locale.name) || '',
+          localeName: (one.locale && one.locale.name) || '',
+          localeDesc: (one.locale && one.locale.desc) || '',
           override: Boolean(one.override),
           hasLocale: Boolean(one.locale),
           updatedAt: one.meta.updatedAt || '',
           info: one.meta.info,
+          conditions: {
+            stock: Array.isArray(one.entity && one.entity.attributeStockCondition) ? one.entity.attributeStockCondition : [],
+            resonance: Array.isArray(one.entity && one.entity.attributeResonanceCondition) ? one.entity.attributeResonanceCondition : [],
+          },
           code: one.meta.code,
-          description: one.meta.description,
+          description: descText,
+          descriptionSource: descSource,
+          localeDescRaw,
         },
       };
     },
@@ -739,6 +901,42 @@ export function buildApi(ctx) {
         autosave.touch(body.name);
       }
       return { ok: true, meta: res.meta, session: session.state(body.name) };
+    },
+
+    'POST /api/passive/state': (body) => {
+      const { letheRoot } = need();
+      const id = String(body.id);
+      const res = savePassiveFields(letheRoot, {
+        name: body.name,
+        id,
+        info: body.info || {},
+        displayName: body.displayName,
+        description: body.description,
+      });
+      const changes = [];
+      if (res.change && res.change.before !== res.change.after) {
+        changes.push({ rel: null, abs: res.change.abs, before: res.change.before, after: res.change.after });
+      }
+      for (const c of (res.changes || [])) {
+        if (c.before !== c.after) changes.push({ rel: c.rel, before: c.before, after: c.after });
+      }
+      if (changes.length) {
+        session.record(body.name, 'passive:' + id, '编辑被动 ' + id, changes);
+        autosave.touch(body.name);
+      }
+      return {
+        ok: true,
+        passive: {
+          id,
+          entity: res.entity,
+          name: String(body.displayName || ''),
+          conditions: {
+            stock: Array.isArray(res.entity.attributeStockCondition) ? res.entity.attributeStockCondition : [],
+            resonance: Array.isArray(res.entity.attributeResonanceCondition) ? res.entity.attributeResonanceCondition : [],
+          },
+        },
+        session: session.state(body.name),
+      };
     },
 
     'POST /api/passive/code': (body) => {
@@ -781,18 +979,78 @@ export function buildApi(ctx) {
       const { letheRoot } = need();
       const one = getBuff(letheRoot, q.get('name'), q.get('id'));
       if (!one) { const e = new Error('找不到这个 Buff'); e.status = 404; throw e; }
+      const ent = one.entity || {};
+      let localeDescRaw = String((one.locale && one.locale.desc) || '');
+      let descSource = 'meta';
+      let descText = String(one.meta.description || '');
+      let vanillaLocale = null;
+      if (!descText && localeDescRaw) {
+        try { descText = fromGameText(localeDescRaw, keywordTables(letheRoot)); } catch { descText = localeDescRaw; }
+        descSource = 'locale';
+      }
+      if (!descText) {
+        vanillaLocale = vanillaBuffLocale(letheRoot, one.id);
+        if (vanillaLocale && vanillaLocale.desc) {
+          localeDescRaw = vanillaLocale.desc;
+          try { descText = fromGameText(vanillaLocale.desc, keywordTables(letheRoot)); } catch { descText = vanillaLocale.desc; }
+          descSource = 'vanilla';
+        }
+      }
+      const scripts = (Array.isArray(ent.list) ? ent.list : [])
+        .map((x) => String((x && x.ability) || ''))
+        .filter(isModularScript);
+      const plainAbilities = (Array.isArray(ent.list) ? ent.list : [])
+        .map((x) => String((x && x.ability) || ''))
+        .filter((x) => x && !isModularScript(x));
+      const parsed = parseScripts(scripts);
+      const byCode = moduleCodeIndex(letheRoot);
+      const matchedModules = scripts.map((code) => byCode.get(canonicalCode(code)) || null);
+      const fileInfo = {
+        buffClass: String(ent.buffClass || ''),
+        buffType: String(ent.buffType || ''),
+        canBeDespelled: ent.canBeDespelled !== false,
+        maxStack: ent.maxStack == null ? null : Number(ent.maxStack),
+        maxTurn: ent.maxTurn == null ? null : Number(ent.maxTurn),
+        iconId: String(ent.iconId || ''),
+        destroyableOnZero: ent.destroyableOnZero === true,
+        destroyableOnZeroTurn: ent.destroyableOnZeroTurn === true,
+        destroyableOnDie: ent.destroyableOnDie === true,
+        destroyableOnRetreat: ent.destroyableOnRetreat === true,
+        destroyableOnBothZero: ent.destroyableOnBothZero === true,
+        attributeType: String(ent.attributeType || ''),
+        stackLimitPerTurn: ent.stackLimitPerTurn == null ? null : Number(ent.stackLimitPerTurn),
+        totalStack: ent.totalStack == null ? null : Number(ent.totalStack),
+        subIdList: Array.isArray(ent.subIdList) ? ent.subIdList.map((x) => String(x)) : [],
+        categoryKeywordList: Array.isArray(ent.categoryKeywordList) ? ent.categoryKeywordList.map((x) => String(x)) : [],
+        listCount: Array.isArray(ent.list) ? ent.list.length : 0,
+        listEntries: (Array.isArray(ent.list) ? ent.list : []).map((x) => String((x && x.ability) || '')),
+        listRaw: (Array.isArray(ent.list) ? ent.list : []).map((x) => {
+          const item = x && typeof x === 'object' ? x : {};
+          try { return JSON.parse(JSON.stringify(item)); } catch { return {}; }
+        }),
+      };
       return {
         ok: true,
         buff: {
           id: one.id,
           rel: one.rel,
-          name: (one.locale && one.locale.name) || '',
+          name: (one.locale && one.locale.name) || (vanillaLocale ? vanillaLocale.name : '') || '',
+          localeName: (one.locale && one.locale.name) || (vanillaLocale ? vanillaLocale.name : '') || '',
+          localeDesc: (one.locale && one.locale.desc) || '',
+          localeDescRaw,
           override: Boolean(one.override),
           hasLocale: Boolean(one.locale),
           updatedAt: one.meta.updatedAt || '',
           info: one.meta.info,
+          fileInfo,
+          infoSource: 'file',
           code: one.meta.code,
-          description: one.meta.description,
+          scripts,
+          plainAbilities,
+          parsed,
+          matchedModules,
+          description: descText,
+          descriptionSource: descSource,
         },
       };
     },
@@ -801,6 +1059,26 @@ export function buildApi(ctx) {
       const { letheRoot } = need();
       const created = createBuff(letheRoot, { name: body.name, id: body.id, displayName: body.displayName, desc: body.desc, info: body.info });
       return { ok: true, buff: { id: created.id, entity: created.entity, locale: created.locale }, written: created.written };
+    },
+
+    'POST /api/buff/scripts': (body) => {
+      const { letheRoot } = need();
+      const id = String(body.id);
+      const res = saveBuffScripts(letheRoot, { name: body.name, id, list: body.list });
+      session.record(body.name, 'buff:' + id, '编辑 Buff 脚本 ' + id, res.changes || []);
+      autosave.touch(body.name);
+      return { ok: true, count: res.count, session: session.state(body.name) };
+    },
+
+    'POST /api/buff/fields': (body) => {
+      const { letheRoot } = need();
+      const id = String(body.id);
+      const res = saveBuffFields(letheRoot, { name: body.name, id, fields: body.fields || {} });
+      if (res.changed) {
+        session.record(body.name, 'buff:' + id, '编辑 Buff 文件字段 ' + (res.touched || []).join('/'), res.changes || []);
+        autosave.touch(body.name);
+      }
+      return { ok: true, touched: res.touched || [], changed: Boolean(res.changed), session: session.state(body.name) };
     },
 
     'POST /api/buff/meta': (body) => {
@@ -839,6 +1117,96 @@ export function buildApi(ctx) {
       const { letheRoot } = need();
       const res = importBuffs(letheRoot, { name: body.name, ids: body.ids, source: body.source || { kind: 'vanilla' } });
       return { ok: true, ...res };
+    },
+
+    /* ---------- 镜牢数据表：卡包 / 饰品（同一个模块，字段表在 lethe/mdtables.mjs） ---------- */
+    'GET /api/md/kinds': () => ({ ok: true, kinds: mdSchemas() }),
+
+    'GET /api/md/list': (q) => {
+      const { letheRoot } = need();
+      const kind = q.get('kind');
+      return { ok: true, kind, items: listMd(letheRoot, q.get('name') || '', kind) };
+    },
+
+    'GET /api/md/one': (q) => {
+      const { letheRoot } = need();
+      return { ok: true, ...getMd(letheRoot, q.get('name') || '', q.get('kind'), q.get('id')) };
+    },
+
+    'GET /api/md/next': (q) => {
+      const { letheRoot } = need();
+      return { ok: true, id: nextMdId(letheRoot, q.get('name') || '', q.get('kind')) };
+    },
+
+    'POST /api/md/save': (body) => {
+      const { letheRoot } = need();
+      const doc = saveMd(letheRoot, body.name, body.kind, body);
+      autosave.touch('');
+      log ? log('[wb] 已保存 ' + body.kind + ' ' + doc.id) : 0;
+      return { ok: true, doc: { id: doc.id, updatedAt: doc.updatedAt } };
+    },
+
+    'POST /api/md/delete': (body) => {
+      const { letheRoot } = need();
+      const res = deleteMd(letheRoot, body.name, body.kind, body.id);
+      autosave.touch('');
+      log ? log('[wb] 已删除 ' + body.kind + ' 草稿 ' + body.id) : 0;
+      return { ok: true, ...res };
+    },
+
+    'POST /api/md/apply': (body) => {
+      const { letheRoot } = need();
+      const res = applyMd(letheRoot, body.name, body.kind, body.id);
+      autosave.touch('');
+      log ? log('[wb] 已落地 ' + body.kind + ' ' + body.id + '：' + res.files.join('、')) : 0;
+      return { ok: true, ...res };
+    },
+
+    'POST /api/md/remove-landed': (body) => {
+      const { letheRoot } = need();
+      const res = removeLanded(letheRoot, body.name, body.kind, body.id);
+      autosave.touch('');
+      log ? log('[wb] 已撤掉落地 ' + body.kind + ' ' + body.id + '：搬走 ' + res.moved.length + ' 个文件') : 0;
+      const doc = getMd(letheRoot, body.name, body.kind, body.id);
+      return { ok: true, ...res, doc };
+    },
+
+    'POST /api/md/apply-all': (body) => {
+      const { letheRoot } = need();
+      const res = applyMdAll(letheRoot, body.name, body.kind);
+      autosave.touch('');
+      log ? log('[wb] 批量落地 ' + body.kind + '：成功 ' + res.landed.length + '，失败 ' + res.failed.length) : 0;
+      return { ok: true, ...res };
+    },
+
+    'GET /api/pick/kinds': () => ({ ok: true, kinds: pickKinds() }),
+
+    'GET /api/pick/list': (q) => {
+      const { letheRoot } = need();
+      const kind = q.get('kind') || 'skill';
+      const res = pickSearch(letheRoot, kind, {
+        q: q.get('q') || '',
+        limit: Number(q.get('limit')) || 80,
+        modOnly: q.get('modOnly') === '1',
+        refresh: q.get('refresh') === '1',
+      });
+      return { ok: true, ...res };
+    },
+
+    'POST /api/md/clone': (body) => {
+      const { letheRoot } = need();
+      const kind = String(body.kind || '');
+      const PICK_OF = { enemy: 'unit', mob: 'unit', part: 'part', egogift: 'gift', cardpack: 'pack', battle: 'battle' };
+      const found = pickRecord(letheRoot, PICK_OF[kind] || kind, String(body.fromId || ''), { cat: String(body.cat || '') });
+      if (!found) throw new Error('游戏与 Mod 里都没有这个 id：' + body.fromId);
+      const entity = fromGameEntity(kind, found.entity);
+      const id = nextMdId(letheRoot, body.name, kind);
+      const spec = mdSchemas().find((x) => x.kind === kind);
+      const loc = { name: String(body.name || '') ? '' : '', desc: '', nameZh: '', descZh: '' };
+      const doc = saveMd(letheRoot, body.name, kind, { id, entity, locale: { ...loc, name: String(body.label || '') } });
+      autosave.touch('');
+      log ? log('[wb] 从 ' + found.source + (found.mod ? '/' + found.mod : '') + ' 载入 ' + kind + ' ' + found.entity.id + ' → 新草稿 ' + id) : 0;
+      return { ok: true, id: doc.id, from: { source: found.source, mod: found.mod, id: String(found.entity.id) }, zh: spec ? spec.zh : kind };
     },
 
     'POST /api/reveal': async (body) => {      const p = String(body.path || '');

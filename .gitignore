@@ -1,4 +1,4 @@
-# 依赖与构建中间物（不进仓库；需要时本地重建）
+﻿# 依赖与构建中间物（不进仓库；需要时本地重建）
 node_modules/
 开发资料/build/
 开发资料/dist/
@@ -14,13 +14,22 @@ node_modules/
 *.dll
 *.exe.gz
 
-# 本机临时脚本
+# 本机运行时状态（每台机器不同）
+开发资料/config.json
+
+# 本地构建产物库（仅本机回退用，不进仓库）
+releases/
+
+# 本机临时脚本与备份
 开发资料/_*.mjs
 开发资料/probe-*.mjs
+*.b1bak
+*.bak
 
 # 系统
 Thumbs.db
 desktop.ini
 .DS_Store
+
 # 发布打包产物（走 GitHub Releases，不入库）
 .release/

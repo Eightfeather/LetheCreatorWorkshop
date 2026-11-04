@@ -2,6 +2,9 @@
 const TOKEN = window.__WB_TOKEN__ || '';
 
 const S = {
+  pAppOpen: false,
+  pAppCatalog: [],
+  pAppQ: '',
   loading: true,
   locating: false,
   autoLocated: false,
@@ -18,6 +21,15 @@ const S = {
   dllDetail: null,
   dllTab: 'current',
   editKind: null,
+  mdKind: null,
+  mdSchemas: null,
+  mdList: [],
+  md: null,
+  mdId: null,
+  mdDirty: false,
+  mdSearch: '',
+  pick: { kind: '', cb: null, q: '', items: [], total: 0 },
+  pkTimer: 0,
   sinner: null,
   personalityId: null,
   personality: null,
@@ -253,17 +265,20 @@ function render() {
   if (S.view === 'home') view.innerHTML = renderHome();
   else if (S.view === 'mods') view.innerHTML = renderMods();
   else if (S.view === 'edit') view.innerHTML = renderEdit();
+  else if (S.view === 'md') view.innerHTML = renderMdView();
   else view.innerHTML = renderImport();
   updateDock();
   restoreScrollMap(scrollMap);
   S._navSnap = snap;
   if (tr) playEnter(tr, ghost);
+  /* restore-scroll */
+  if (S.pRestoreScroll) { const t = S.pRestoreScroll; S.pRestoreScroll = 0; const el = document.querySelector('.p-main'); if (el && t) el.scrollTop = t; }
 }
 
 /* ------------------------------ 界面切换动画 ------------------------------ */
 // 只给“新进来的内容”播入场动画；方向表示去向：底栏/页签按顺序左右滑，进入下一层从下方升起，返回上一层从上方落下
 
-const VIEW_ORDER = ['home', 'mods', 'edit', 'import'];
+const VIEW_ORDER = ['home', 'mods', 'edit', 'import', 'md'];
 
 function navDepth() {
   if (S.view !== 'edit' || !S.editKind) return 0;
@@ -610,9 +625,14 @@ const WIZARDS = [
   { kind: 'passive', name: '被动编辑', sub: 'PASSIVE', ico: '◇' },
   { kind: 'skill', name: '技能编辑', sub: 'SKILL', ico: '✦' },
   { kind: 'buff', name: 'Buff 编辑', sub: 'BUFF', ico: '❖' },
-  { kind: 'battle', name: '战斗编辑', sub: 'BATTLE', ico: '⚔', wip: true },
-  { kind: 'enemy', name: '敌人编辑', sub: 'ENEMY', ico: '☠', wip: true },
 ];
+
+/* ---- 镜牢编辑（移植自清欣版；本块 UI 依赖下面的 md 辅助函数） ---- */
+const MD_UI = ['cardpack', 'egogift', 'battle', 'enemy', 'mob', 'part'];
+// 这些表支持「载入现有」：从游戏原版 / 已加载 Mod 的记录克隆一条成新草稿
+const CLONE_FROM = { enemy: 'unit', mob: 'unit', part: 'part', egogift: 'gift', cardpack: 'pack', battle: 'battle' };
+const PICK_ZH = { skill: '技能', unit: '敌人', part: '敌人部位', gift: '饰品', pack: '卡包', battle: '战斗' };
+
 
 // 收起态的 Mod 列表：只留首字 + 启停点，悬停显示全名
 const modRowMini = (m) => `<button class="item mini ${S.selected === m.name ? 'active' : ''} ${m.enabled ? '' : 'disabled'}" data-act="select-mod" data-name="${esc(m.name)}" title="${esc(m.name)}${m.enabled ? '' : '（已禁用）'}">
@@ -768,6 +788,8 @@ const ATK_LIST = ['SLASH', 'PENETRATE', 'HIT'];
 const ATK_ZH = { SLASH: '斩击', PENETRATE: '突刺', HIT: '打击' };
 
 async function loadPersonalityExtra() {
+  await loadAppCatalog((S.personality && S.personality.entity) || null);
+  await loadPortrait();
   if (!S.selected || !S.personalityId) return;
   try {
     if (!S.pI18n) { const r = await api('/api/personality/i18n'); S.pI18n = r.tables; }
@@ -833,6 +855,49 @@ function pHpTitle(e) {
 }
 
 const P_THR_COLORS = ['#E8C15A', '#D05A4A', '#4FA3B8', '#8C6BD0', '#6BAF6B', '#C97AA6', '#B9A25C', '#7FA9D0', '#C77F4F'];
+
+function pPortraitHtml() {
+  const sp = S.pPortrait || {};
+  const pick = sp.cg || sp.profile;
+  if (pick && pick.dataUrl) {
+    return '<div class="pp-art has-img" title="' + esc(pick.file) + '"><img class="pp-img" src="' + pick.dataUrl + '" alt="立绘"></div>';
+  }
+  return '<div class="pp-art pp-noimg"><span>请输入图片</span></div>';
+}
+
+async function loadPortrait() {
+  S.pPortrait = null;
+  if (!S.personality || !S.selected) return;
+  try {
+    const r = await api('/api/personality/portrait?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(S.personality.id));
+    S.pPortrait = (r && r.sprites) || null;
+  } catch (e) { S.pPortrait = null; }
+}
+
+function pAppPanel(e) {
+  if (!S.pAppOpen) return '';
+  const list = S.pAppCatalog || [];
+  const q = String(S.pAppQ || '').toLowerCase();
+  const rows = list.filter((x) => !q || String(x.appearance).toLowerCase().includes(q) || String(x.zh || '').toLowerCase().includes(q));
+  const body = rows.length
+    ? rows.map((x) => '<button class="p-app-row" data-act="p-app-pick" data-app="' + esc(x.appearance) + '"><span class="p-app-en">' + esc(x.appearance) + '</span><span class="p-app-zh">' + (x.zh ? esc(x.zh) : '<i class="muted">未登记名称</i>') + '</span></button>').join('')
+    : '<div class="p-app-empty muted">没有匹配的外观</div>';
+  return '<div class="p-app-panel">'
+    + '<input class="p-search p-app-q" id="p-app-q" placeholder="搜索资源名 / 中文名" value="' + esc(S.pAppQ || '') + '" autocomplete="off">'
+    + '<div class="p-app-list2">' + body + '</div>'
+    + '<div class="p-app-note muted">共 ' + list.length + ' 条（含仅皮肤外观与 EGO 同化皮肤）；点一条即写入上面的输入框。</div>'
+    + '</div>';
+}
+
+async function loadAppCatalog(e) {
+  S.pAppCatalog = [];
+  const cid = Number((e && e.characterId) || 0);
+  if (!cid) return;
+  try {
+    const r = await api('/api/personality/appearance-catalog?characterId=' + cid);
+    S.pAppCatalog = (r && r.items) || [];
+  } catch (err) { S.pAppCatalog = []; }
+}
 
 function pHeadBar(st) {
   const hp = Number(st.hp65) || 0;
@@ -911,7 +976,8 @@ function pDefRows(e) {
 }
 
 function pBreakRows(e) {
-  const list = (e.breakSection && e.breakSection.sectionList) || [];
+  const src = (e.breakSection && e.breakSection.sectionList) || [];
+  const list = src.slice().sort((a, b) => (Number(b) || 0) - (Number(a) || 0));
   const hp65 = (S.pStats && S.pStats.hp65) || 0;
   if (!list.length) return '<div class="p-empty muted">没有混乱阈值（不会被混乱）</div>';
   const order = list.map((v, i) => ({ pct: Number(v) || 0, i })).sort((a, b) => b.pct - a.pct);
@@ -970,6 +1036,24 @@ function pKwChips(list) {
 }
 
 /* 单位/阵营词条：输入 + 模糊搜索，选中即加（最多 10 条） */
+function pTagHitsHtml(kind) {
+  const e = (S.personality && S.personality.entity) || {};
+  const list = kind === 'unit' ? (e.unitKeywordList || []) : (e.associationList || []);
+  const used = new Set(list.map((x) => String(x || '').trim()).filter(Boolean));
+  const q = String((S.pTagQ && S.pTagQ[kind]) || '').trim().toLowerCase();
+  const hits = pTagChoices(kind)
+    .filter((c) => !used.has(String(c.id)))
+    .filter((c) => !q || String(c.id).toLowerCase().includes(q) || String(c.zh || '').toLowerCase().includes(q))
+    .slice(0, 8);
+  return hits.map((c) => '<button type="button" class="p-taghit" data-act="p-tag-add2" data-kind="' + kind + '" data-id="' + esc(c.id) + '">' + esc(pShort(c.zh || c.id, 12)) + '</button>').join('')
+    || (q ? '<span class="muted">没有匹配</span>' : '');
+}
+
+function pRefreshTagHits(kind) {
+  const box = document.getElementById('p-taghits-' + kind);
+  if (box) box.innerHTML = pTagHitsHtml(kind);
+}
+
 function pTagSearch(list, kind) {
   const cur = (list || []).map((x) => String(x || '').trim()).filter(Boolean);
   const choices = pTagChoices(kind);
@@ -981,7 +1065,7 @@ function pTagSearch(list, kind) {
     .slice(0, 8);
   return `${pTagChips(cur, kind)}
     <input class="p-search p-tagq" id="p-tagq-${kind}" data-tagq="${kind}" placeholder="输入${kind === 'unit' ? '单位' : '阵营'}词条名称或 id 搜索" value="${esc((S.pTagQ && S.pTagQ[kind]) || '')}" autocomplete="off" ${cur.length >= 10 ? 'disabled' : ''}>
-    <span class="p-chips p-taghits">${hits.map((c) => `<button type="button" class="p-taghit" data-act="p-tag-add2" data-kind="${kind}" data-id="${esc(c.id)}">${esc(pShort(c.zh || c.id, 12))}</button>`).join('') || (q ? '<span class="muted">没有匹配</span>' : '')}</span>`;
+    <span class="p-chips p-taghits" id="p-taghits-${kind}">${hits.map((c) => `<button type="button" class="p-taghit" data-act="p-tag-add2" data-kind="${kind}" data-id="${esc(c.id)}">${esc(pShort(c.zh || c.id, 12))}</button>`).join('') || (q ? '<span class="muted">没有匹配</span>' : '')}</span>`;
 }
 
 /* 被动并入人格页（文档 17 第 6 条）：战斗被动 / 支援被动 · 同步等级 N，加入前用下拉切级别 */
@@ -1015,6 +1099,8 @@ function pSourceDocText(res) {
 }
 async function openPersonalitySource() {
   if (!S.personality) return;
+  const scroller = document.querySelector('.p-main');
+  S.pSourceScroll = scroller ? scroller.scrollTop : 0;
   const res = await api('/api/personality/source?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(S.personality.id));
   S.pSource = { id: S.personality.id, mode: 'view', text: pSourceDocText(res), locked: Boolean(res.locked), draft: '' };
   render();
@@ -1039,6 +1125,20 @@ function renderPersonalitySourcePage() {
 </div>`;
 }
 
+async function refreshPersonalityQuiet() {
+  if (!S.personality) return;
+  try {
+    await loadPersonality(S.selected, S.personality.id);
+    await loadPersonalityExtra();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function closeSourcePage() {
+  S.pSource = null;
+  await refreshPersonalityQuiet();
+  render();
+  S.pRestoreScroll = Number(S.pSourceScroll) || 0;
+  render();
+}
 function renderPersonalityDetail() {
   const p = S.personality;
   if (!p) return '';
@@ -1066,7 +1166,7 @@ function renderPersonalityDetail() {
 
   return `<div class="p-edit" id="personality-form">
     <aside class="p-portrait">
-      <div class="pp-frame"><div class="pp-art">${esc((name || '?').slice(0, 1))}</div></div>
+      <div class="pp-frame">${pPortraitHtml()}</div>
       <button class="btn ghost sm" data-act="p-portrait">编辑立绘</button>
       <div class="pp-id">${esc(p.id)}${vanilla ? ' · 原版' : ''}</div>
       <button class="btn ghost sm" data-act="p-back" title="返回人格列表">← 退出</button>
@@ -1106,16 +1206,16 @@ function renderPersonalityDetail() {
         ${pRow('人格名称', `<input data-field="locale.name" value="${esc(l.name ?? '')}" placeholder="必填">`)}
         ${pRow('稀有度', rankPicker + `<select class="sr-only" data-field="entity.rank" tabindex="-1" aria-hidden="true">${rankList.map((r) => `<option value="${r}" ${Number(e.rank) === r ? 'selected' : ''}>${r}</option>`).join('')}</select>`)}
         <div class="p-grid2">
-          ${pRow('防御修正值', `<input type="number" data-field="entity.defCorrection" value="${esc(e.defCorrection ?? '')}" placeholder=">1.5 致命 · >1 脆弱 · =1 普通 · <1 耐性 · ≤0.5 抵抗">`)}
-          ${pRow('速度区间', `<span class="p-speed-pair"><input type="number" step="1" data-field="entity.speedMin" value="${esc(minSp)}" placeholder="最小"><span class="p-speed-tilde">~</span><input type="number" step="1" data-field="entity.speedMax" value="${esc(maxSp)}" placeholder="最大"></span>`)}
+          ${pRow('防御修正值', `<input type="text" inputmode="decimal" data-num="1" data-field="entity.defCorrection" value="${esc(e.defCorrection ?? '')}" placeholder=">1.5 致命 · >1 脆弱 · =1 普通 · <1 耐性 · ≤0.5 抵抗">`)}
+          ${pRow('速度区间', `<span class="p-speed-pair"><input type="text" inputmode="decimal" data-num="1" step="1" data-field="entity.speedMin" value="${esc(minSp)}" placeholder="最小"><span class="p-speed-tilde">~</span><input type="text" inputmode="decimal" data-num="1" step="1" data-field="entity.speedMax" value="${esc(maxSp)}" placeholder="最大"></span>`)}
         </div>
-        ${pRow('外观资源名', `<input id="p-app" data-field="entity.appearance" value="${esc(e.appearance ?? '')}" placeholder="例如 10101_YiSang_BaseAppearance" autocomplete="off"><span class="p-app-list" id="p-app-list">${apps.slice(0, 8).map((a) => `<button class="p-app-item" data-act="p-app-set" data-app="${esc(a)}">${esc(a)}</button>`).join('')}</span>`)}
+        ${pRow('外观资源名', `<input id="p-app" data-field="entity.appearance" value="${esc(e.appearance ?? '')}" placeholder="可手输任意资源名，或点右侧展开挑选" autocomplete="off"><button class="btn ghost sm p-app-toggle" data-act="p-app-toggle">${S.pAppOpen ? '收起' : '展开'}</button>` + pAppPanel(e))}
       `)}
 
       ${pSection('血量与混乱阈值', `
         <div class="p-grid2">
-          ${pRow('基础血量', `<input type="number" step="0.5" data-field="entity.hp.defaultStat" value="${esc(e.hp?.defaultStat ?? '')}" title="${esc(hpTitle)}">`)}
-          ${pRow('每级成长', `<input type="number" step="0.01" data-field="entity.hp.incrementByLevel" value="${esc(e.hp?.incrementByLevel ?? '')}" title="${esc(hpTitle)}">`, 'Lv.65 血量＝基础＋成长×64（悬浮看各等级）')}
+          ${pRow('基础血量', `<input type="text" inputmode="decimal" data-num="1" step="0.5" data-field="entity.hp.defaultStat" value="${esc(e.hp?.defaultStat ?? '')}" title="${esc(hpTitle)}">`)}
+          ${pRow('每级成长', `<input type="text" inputmode="decimal" data-num="1" step="0.01" data-field="entity.hp.incrementByLevel" value="${esc(e.hp?.incrementByLevel ?? '')}" title="${esc(hpTitle)}">`, 'Lv.65 血量＝基础＋成长×64（悬浮看各等级）')}
         </div>
         <div class="p-sub-head">混乱阈值（从右往左计数，最多 9 档）</div>
         ${pBreakRows(e)}
@@ -1124,7 +1224,7 @@ function renderPersonalityDetail() {
 
       ${pSection('物理抗性', ATK_LIST.map((k) => {
         const hit = ((e.resistInfo && e.resistInfo.atkResistList) || []).find((r) => r && r.type === k);
-        return pRow(ATK_ZH[k], `<input type="number" step="0.05" min="0" max="10" data-field="entity.resist.${k}" value="${esc(hit ? hit.value : '')}" placeholder="倍率">`);
+        return pRow(ATK_ZH[k], `<input type="text" inputmode="decimal" data-num="1" step="0.05" min="0" max="10" data-field="entity.resist.${k}" value="${esc(hit ? hit.value : '')}" placeholder="倍率">`);
       }).join(''))}
 
       ${pSection('技能', `<div class="p-search-row">${pSearchBox('p-skill-q', '输入技能 id 或名称搜索（原版 + 全部 Mod）', S.pSkillQ)}</div>
@@ -1186,12 +1286,6 @@ function portraitBody() {
       <div class="pf-hint muted">只接受 .png；保存后写入 <code>custom_sprites/${f.kind}_${pid}.png</code>（同名旧图会被替换）。</div>
       <label class="btn ghost sm pf-pick">选择图片<input id="pf-file" type="file" accept="image/png" hidden></label>
     </div>
-    <div class="pf-right">
-      <div class="pf-col-title">使用原版立绘</div>
-      <input class="p-search" id="pf-app-q" placeholder="输入外观名 / 人格名 / id 搜索原版立绘" value="${esc(S.pfAppQ || '')}" autocomplete="off">
-      <div class="pf-apphits">${apps.map((a) => `<button class="pf-apphit" data-act="p-app-use" data-app="${esc(a)}">${esc(a)}</button>`).join('') || '<div class="pf-empty muted">没有匹配</div>'}</div>
-      <div class="pf-hint muted">选中即把外观资源名写成该原版外观（不写 custom_sprites）。</div>
-    </div>
   </div>`;
 }
 
@@ -1216,7 +1310,9 @@ async function ensureAppOptions() {
 async function openPortraitModal() {
   if (!S.personality) return;
   try { await ensureAppOptions(); } catch (e) { toast(e.message, 'error'); }
-  S.pf = { kind: 'profile', dataUrl: '' };
+  const sp = S.pPortrait || {};
+  const kind = sp.profile ? 'profile' : (sp.cg ? 'cg' : 'profile');
+  S.pf = { kind, dataUrl: (sp[kind] || {}).dataUrl || '' };
   S.pfAppQ = '';
   modal({
     title: '编辑立绘',
@@ -1266,7 +1362,7 @@ function pCollectDynamic() {
   }
   const breaks = $$('[data-break]');
   if (breaks.length) {
-    const list = breaks.map((el) => num(el.value)).filter((v) => v !== null && v !== undefined && !Number.isNaN(v));
+    const list = breaks.map((el) => num(el.value)).filter((v) => v !== null && v !== undefined && !Number.isNaN(v)).sort((a, b) => b - a).slice(0, 9);
     patch.breakSection = { sectionList: list };
   }
   const stacks = $$('[data-buff-stack]');
@@ -1333,6 +1429,7 @@ function readFieldPatch() {
   const resist = {};
   const baseHp = { ...((S.personality && S.personality.entity && S.personality.entity.hp) || {}) };
   let hasResist = false;
+  let hpDefault; let hpInc;
   let speedMin; let speedMax;
   let speedRaw;
   $$('[data-field]', form).forEach((el) => {
@@ -1345,13 +1442,20 @@ function readFieldPatch() {
     else if (key === 'defCorrection') entity.defCorrection = num(raw);
     else if (key === 'uniqueAttribute') { entity.uniqueAttribute = raw; }
     else if (key === 'appearance') entity.appearance = raw.trim();
-    else if (key === 'hp.defaultStat') entity.hp = { ...baseHp, defaultStat: num(raw) };
-    else if (key === 'hp.incrementByLevel') entity.hp = { ...baseHp, incrementByLevel: num(raw) };
+    else if (key === 'hp.defaultStat') hpDefault = num(raw);
+    else if (key === 'hp.incrementByLevel') hpInc = num(raw);
     else if (key === 'speed') speedRaw = String(raw).trim();
     else if (key === 'speedMin') speedMin = num(raw);
     else if (key === 'speedMax') speedMax = num(raw);
     else if (key.startsWith('resist.')) { resist[key.slice(7)] = num(raw); hasResist = true; }
   });
+  if (hpDefault !== undefined || hpInc !== undefined) {
+    entity.hp = {
+      ...baseHp,
+      ...(hpDefault !== undefined ? { defaultStat: hpDefault } : {}),
+      ...(hpInc !== undefined ? { incrementByLevel: hpInc } : {}),
+    };
+  }
   if (speedRaw !== undefined) {
     // 速度只保留「区间」单输入：3~7 或单个数字
     const m = speedRaw.match(/^(-?\d+(?:\.\d+)?)\s*[~～\-–]\s*(-?\d+(?:\.\d+)?)$/);
@@ -1524,8 +1628,8 @@ const actions = {
     await loadPersonalities(S.selected); render();
   },
   'p-source': async () => { try { await openPersonalitySource(); } catch (e) { toast(e.message, 'error'); } },
-  'p-source-back': () => { S.pSource = null; render(); },
-  'p-source-cancel': () => { S.pSource = null; render(); },
+  'p-source-back': async () => { await closeSourcePage(); },
+  'p-source-cancel': async () => { await closeSourcePage(); },
   'p-source-edit': () => {
     if (!S.pSource || S.pSource.locked) return;
     S.pSource.mode = 'edit';
@@ -1562,6 +1666,19 @@ const actions = {
       closeModal(); S.personality = null; S.personalityId = null; S.sessionKey = '';
       await loadPersonalities(S.selected); render(); toast('人格已删除', 'ok');
     } catch (e) { toast(e.message, 'error'); }
+  },
+  'p-app-toggle': () => {
+    S.pAppOpen = !S.pAppOpen;
+    render();
+  },
+  'p-app-pick': async (el) => {
+    const v = String(el.dataset.app || '');
+    S.pAppOpen = false;
+    if (!S.personality) { render(); return; }
+    await pPatch({ entity: { appearance: v } });
+    await loadPersonality();
+    toast('已填入外观资源名', 'ok');
+    render();
   },
   'p-slot-add': (el) => {
     if (el.dataset.kind === 'skill') S.pSkillSlots = Number(S.pSkillSlots) || 0;
@@ -1600,28 +1717,42 @@ const actions = {
   'open-settings': () => openSettings(),
   'create-mod': () => openCreateMod(),
   'select-mod': async (el) => {
+    if (S.view === 'md') {
+      const nm = el.dataset.name;
+      S.selected = nm;
+      S.md = null;
+      S.mdId = null;
+      await ensureMdSchemas();
+      if (S.editKind) await loadMdList(nm, S.editKind);
+      render();
+      return;
+    }
     const name = el.dataset.name;
     const prev = S.selected;
+    const same = prev === name;
     S.selected = name;
     S.selectedDll = null;
     S.dllDetail = null;
     S.detailTab = 'current';
     S.backupView = null;
-    S.sessionKey = '';
-    S.skill = null;
-    S.skillId = null;
-    S.skills = [];
-    S.modules = [];
-    S.descCheck = null;
-    S.descChecks = null;
-    S.passive = null;
-    S.passiveId = null;
-    S.passives = [];
-    S.buff = null;
-    S.buffId = null;
-    S.buffs = [];
-    S.pDescCheck = null;
-    S.bDescCheck = null;
+    // 点同一个 Mod 时只刷新详情，不清空编辑状态（此前会清空却不重载，列表与内容一起变空）
+    if (!same) {
+      S.sessionKey = '';
+      S.skill = null;
+      S.skillId = null;
+      S.skills = [];
+      S.modules = [];
+      S.descCheck = null;
+      S.descChecks = null;
+      S.passive = null;
+      S.passiveId = null;
+      S.passives = [];
+      S.buff = null;
+      S.buffId = null;
+      S.buffs = [];
+      S.pDescCheck = null;
+      S.bDescCheck = null;
+    }
     if (S.status.letheRoot) {
       await loadModDetail(name);
       await refreshSession(name);
@@ -1775,19 +1906,14 @@ const actions = {
     api('/api/config', { method: 'POST', body: { ui } }).catch(() => { /* 写不进配置时只在本次生效 */ });
   },
   'toggle-vanilla': () => { S.showVanilla = !S.showVanilla; render(); },
-  'open-vanilla-personality': async (el) => {
+  'open-vanilla-personality': (el) => {
     const id = el.dataset.id;
-    await loadPersonality(S.selected, id);
-    render();
-    const st = S.personality?.vanilla;
-    if (st) {
-      modal({
-        title: '这是原版人格',
-        body: `<p>即将把原版人格 <strong>${esc(S.personality?.locale?.name || id)}</strong>（id ${esc(id)}）的全部信息复制进本 Mod，作为「已预设参数的自定义人格」，并<strong>用这个 id 覆盖原版</strong>。</p>
-          <div class="hint muted">复制后可以自由修改全部字段；游戏内该原版人格会被这个 Mod 覆盖。</div>`,
-        footer: `<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="confirm-vanilla-personality" data-id="${esc(id)}">确认复制并编辑</button>`,
-      });
-    }
+    modal({
+      title: '原版人格',
+      body: `<p class="muted">把原版人格 \`${esc(id)}\` 复制进当前 Mod 后即可编辑；游戏内该原版人格会被本 Mod 覆盖。</p>`,
+      footer: `<button class="btn ghost" data-act="close-modal">取消</button>
+        <button class="btn primary" data-act="confirm-vanilla-personality" data-id="${esc(id)}">导出编辑</button>`,
+    });
   },
   'confirm-vanilla-personality': async (el) => {
     const res = await api('/api/personality/copy-vanilla', { method: 'POST', body: { name: S.selected, id: el.dataset.id } });
@@ -1855,10 +1981,15 @@ const actions = {
     render();
   },
   'p-break-add': async () => {
-    const list = ((pEntity().breakSection && pEntity().breakSection.sectionList) || []).slice();
+    const domList = Array.from(document.querySelectorAll('[data-break]')).map((el) => Number(el.value)).filter((n) => !Number.isNaN(n));
+    const list = [...new Set((domList.length ? domList : ((pEntity().breakSection && pEntity().breakSection.sectionList) || []).map(Number)).filter((n) => !Number.isNaN(n)))].sort((a, b) => b - a);
     if (list.length >= 9) { toast('混乱阈值最多 9 档', 'warn'); return; }
-    const last = list.length ? Number(list[list.length - 1]) : 50;
-    list.push(Math.max(1, Math.round(last / 2)));
+    const min = list.length ? list[list.length - 1] : 100;
+    let next = Math.max(1, Math.floor(min / 2));
+    while (list.includes(next) && next > 1) next -= 1;
+    if (list.includes(next) || next <= 0) { toast('已经无法再加入更低的阈值档位', 'warn'); return; }
+    list.push(next);
+    list.sort((a, b) => b - a);
     await pPatch({ entity: { breakSection: { sectionList: list } } });
     await loadPersonalityExtra();
     render();
@@ -1957,6 +2088,7 @@ const actions = {
     try {
       const res = await api('/api/personality/portrait', { method: 'POST', body: { name: S.selected, id: S.personality.id, kind: S.pf.kind, dataUrl: S.pf.dataUrl } });
       closeModal();
+      await loadPortrait();
       toast('已写入 ' + (res.rel || ('custom_sprites/' + S.pf.kind + '_' + S.personality.id + '.png')), 'ok');
     } catch (e) { toast(e.message, 'error'); }
   },
@@ -2080,6 +2212,194 @@ const actions = {
     if (res.ok) toast(`已自动快照：${res.result.files} 文件`, 'ok');
     else toast(res.result?.reason === 'clean' ? '当前没有未保存改动' : '快照未执行', 'warn');
   },
+  'open-md': async (el) => {
+    S.md = null;
+    S.mdId = String(el.dataset.id);
+    S.mdDirty = false;
+    const res = await api(`/api/md/one?kind=${S.editKind}&name=${encodeURIComponent(S.selected)}&id=${encodeURIComponent(S.mdId)}`);
+    S.md = { entity: res.entity || {}, locale: res.locale || {}, applied: res.applied, appliedAt: res.appliedAt || '' };
+    render();
+  },
+  'new-md': async () => {
+    const res = await api(`/api/md/next?kind=${S.editKind}&name=${encodeURIComponent(S.selected)}`);
+    const spec = mdSpec(S.editKind);
+    S.mdId = String(res.id);
+    S.md = { entity: JSON.parse(JSON.stringify(spec.defaults || {})), locale: { name: '', desc: '' }, applied: false };
+    S.mdDirty = true;
+    render();
+  },
+  'save-md': async () => {
+    if (!S.md) return;
+    const body = { name: S.selected, kind: S.editKind, id: S.mdId, entity: S.md.entity, locale: S.md.locale };
+    await api('/api/md/save', { method: 'POST', body });
+    const spec = mdSpec(S.editKind);
+    toast(`已保存${spec.zh.replace('镜牢', '')} ${S.mdId}`, 'ok');
+    S.mdDirty = false;
+    await loadMdList(S.selected, S.editKind);
+    render();
+  },
+  'apply-md': async () => {
+    if (!S.md) return;
+    await api('/api/md/apply', { method: 'POST', body: { name: S.selected, kind: S.editKind, id: S.mdId } });
+    toast(`已落地到游戏文件（${mdSpec(S.editKind).zh} ${S.mdId}）`, 'ok');
+    S.md = { ...S.md, applied: true, appliedAt: new Date().toISOString() };
+    await loadMdList(S.selected, S.editKind);
+    render();
+  },
+  'apply-md-all': async () => {
+    const res = await api('/api/md/apply-all', { method: 'POST', body: { name: S.selected, kind: S.editKind } });
+    toast(`批量落地：成功 ${res.landed.length}，失败 ${res.failed.length}`, res.failed.length ? 'warn' : 'ok');
+    await loadMdList(S.selected, S.editKind);
+    render();
+  },
+  'delete-md': () => {
+    if (!S.md) return;
+    const spec = mdSpec(S.editKind);
+    modal({
+      title: `删除${spec.zh}`,
+      body: `<div class="danger-box"><b>只删编辑器里的草稿，不动游戏文件。</b><div class="muted">${esc(spec.zh)} <code>${esc(S.mdId)}</code> 的草稿会被彻底删除；已经落地到 Mod 的文件保留。</div></div>`,
+      footer: '<button class="btn ghost" data-act="close-modal">取消</button><button class="btn danger" data-act="confirm-delete-md">确认删除</button>',
+    });
+  },
+  'confirm-delete-md': async () => {
+    await api('/api/md/delete', { method: 'POST', body: { name: S.selected, kind: S.editKind, id: S.mdId } });
+    closeModal();
+    toast('草稿已删除', 'warn');
+    S.md = null;
+    S.mdId = null;
+    await loadMdList(S.selected, S.editKind);
+    render();
+  },
+  'md-add-node': () => {
+    if (!S.md) return;
+    (S.md.entity.nodeList ||= []).push({ type: 'BATTLE', count: 1 });
+    S.mdDirty = true; render();
+  },
+  'md-del-node': (el) => {
+    if (!S.md) return;
+    S.md.entity.nodeList = (S.md.entity.nodeList || []).filter((_, i) => i !== Number(el.dataset.index));
+    S.mdDirty = true; render();
+  },
+  'md-add-row': (el) => {
+    if (!S.md) return;
+    const key = el?.dataset?.list || 'upgradeList';
+    const spec = mdSpec(S.editKind);
+    const f = (spec.fields || []).find((x) => x.key === key);
+    const row = {};
+    if (f?.type === 'mental') { row.group = 'add'; row.level = 1; row.conditionIDs = []; }
+    for (const c of f?.cols || []) {
+      if (c.type === 'number') row[c.key] = 0;
+      else if (c.type === 'nums') row[c.key] = [];
+      else if (c.type === 'enum') row[c.key] = Array.isArray(c.options) ? (c.options[0]?.id || '') : ((mdEnumOptions(c)[0] || {}).id || '');
+      else row[c.key] = '';
+    }
+    (S.md.entity[key] ||= []).push(row);
+    S.mdDirty = true; render();
+  },
+  pick: (el) => {
+    if (!S.md) return;
+    const kind = el.dataset.pick;
+    const apply = (it) => {
+      const id = Number(it.id);
+      if (!Number.isFinite(id)) return;
+      if (el.dataset.wave !== undefined && el.dataset.wave !== '') {
+        const w = (S.md.entity.waveList || [])[Number(el.dataset.wave)];
+        const slot = el.dataset.slot || 'units';
+        const u = w && (w[slot] || [])[Number(el.dataset.uindex)];
+        if (u) u[el.dataset.col || 'unitID'] = id;
+      } else if (el.dataset.list) {
+        const row = (S.md.entity[el.dataset.list] || [])[Number(el.dataset.index)];
+        if (row) row[el.dataset.col || 'skillId'] = id;
+      } else if (el.dataset.field) {
+        const key = el.dataset.field;
+        const cur = Array.isArray(S.md.entity[key]) ? S.md.entity[key].map(Number) : [];
+        if (!cur.includes(id)) cur.push(id);
+        S.md.entity[key] = cur;
+      }
+      S.mdDirty = true;
+      render();
+    };
+    openPicker(kind, apply);
+  },
+  'pk-use': (el) => {
+    const one = (S.pick.items || []).find((x) => String(x.id) === String(el.dataset.id));
+    const cb = S.pick && S.pick.cb;
+    closeModal();
+    if (one && cb) cb(one);
+  },
+  'md-kind': async (el) => {
+    S.editKind = el.dataset.kind;
+    S.editKind = S.editKind;
+    S.md = null;
+    S.mdId = null;
+    S.mdDirty = false;
+    await ensureMdSchemas();
+    if (S.selected) await loadMdList(S.selected, S.editKind);
+    else toast('先从左侧选一个 Mod，再挑这张表', 'warn');
+    render();
+  },
+  'md-back': () => {
+    S.editKind = null;
+    S.md = null;
+    S.mdId = null;
+    render();
+  },
+  'md-clone': () => {
+    const from = CLONE_FROM[S.editKind];
+    if (!from) return;
+    openPicker(from, async (it) => {
+      const label = it.name || it.nameZh || '';
+      const res = await api('/api/md/clone', { method: 'POST', body: { kind: S.editKind, name: S.selected, fromId: it.id, cat: it.cat || '', label } });
+      toast(`已载入 ${label || it.id} → 新草稿 #${res.id}`, 'ok');
+      await loadMdList();
+      const one = await api(`/api/md/one?kind=${S.editKind}&name=${encodeURIComponent(S.selected)}&id=${res.id}`);
+      S.md = { entity: one.entity || {}, locale: one.locale || {}, applied: Boolean(one.applied), appliedAt: one.appliedAt || '' };
+      S.mdId = String(res.id);
+      S.mdDirty = false;
+      render();
+    });
+  },
+  'md-remove-landed': async () => {
+    if (!S.md) return;
+    if (!S.md.applied) { toast('这条还没落地过', 'error'); return; }
+    const res = await api('/api/md/remove-landed', { method: 'POST', body: { kind: S.editKind, name: S.selected, id: S.mdId } });
+    toast(`已撤掉落地：搬走 ${res.moved.length} 个文件（备份在 LCW/backups/md-remove）`, 'ok');
+    S.md = res.doc || { ...S.md, applied: false, appliedAt: '' };
+    await loadMdList();
+    render();
+  },
+  'md-del-row': (el) => {
+    if (!S.md) return;
+    const key = el?.dataset?.list || 'upgradeList';
+    S.md.entity[key] = (S.md.entity[key] || []).filter((_, i) => i !== Number(el.dataset.index));
+    S.mdDirty = true; render();
+  },
+  'md-add-wave': () => {
+    if (!S.md) return;
+    (S.md.entity.waveList ||= []).push({ mapName: '', mapSize: 0, bgm: '', enemyPositionID: 0, units: [{ unitID: 0, unitCount: 1, unitLevel: 1 }], subUnits: [] });
+    S.mdDirty = true; render();
+  },
+  'md-del-wave': (el) => {
+    if (!S.md) return;
+    S.md.entity.waveList = (S.md.entity.waveList || []).filter((_, i) => i !== Number(el.dataset.wave));
+    S.mdDirty = true; render();
+  },
+  'md-add-unit': (el) => {
+    if (!S.md) return;
+    const w = (S.md.entity.waveList || [])[Number(el.dataset.wave)];
+    if (!w) return;
+    const slot = el.dataset.slot || 'units';
+    (w[slot] ||= []).push({ unitID: 0, unitCount: 1, unitLevel: 1 });
+    S.mdDirty = true; render();
+  },
+  'md-del-unit': (el) => {
+    if (!S.md) return;
+    const w = (S.md.entity.waveList || [])[Number(el.dataset.wave)];
+    if (!w) return;
+    const slot = el.dataset.slot || 'units';
+    w[slot] = (w[slot] || []).filter((_, i) => i !== Number(el.dataset.uindex));
+    S.mdDirty = true; render();
+  },
 };
 
 /* ------------------------------ 数据刷新辅助 ------------------------------ */
@@ -2156,13 +2476,34 @@ async function checkRecover() {
   } catch { /* ignore */ }
 }
 
+function leaveToAreaTop(view) {
+  if (view === 'edit') {
+    S.editKind = null; S.personalityId = null; S.personality = null; S.pSource = null;
+    S.moduleEditing = null; S.mb = null; S.mbDoc = null;
+    S.skill = null; S.skillId = null; S.passive = null; S.passiveId = null;
+    S.buff = null; S.buffId = null;
+  } else if (view === 'mods') {
+    S.modDetail = null; S.selectedDll = null; S.detailTab = 'overview'; S.backupView = null;
+  } else if (view === 'md') {
+    S.editKind = null; S.md = null; S.mdId = null; S.mdDirty = false;
+  }
+  S.pSourceScroll = 0;
+}
+
 /* --------------------------------- 事件绑定 -------------------------------- */
 
 document.addEventListener('click', (e) => {
   const nav = e.target.closest('[data-view]');
+  if (nav && nav.classList.contains('dock-item') && S.view === nav.dataset.view) {
+    if (mbIsDirty() || mbPendingMissing().list.length) { mbLeaveGuard(() => { leaveToAreaTop(S.view); render(); }); return; }
+    leaveToAreaTop(S.view);
+    render();
+    return;
+  }
   if (nav && (nav.classList.contains('dock-item') || nav.classList.contains('nav-key'))) {
     if (mbIsDirty() || mbPendingMissing().list.length) { mbLeaveGuard(() => { S.view = nav.dataset.view; S.moduleEditing = null; S.mb = null; S.mbDoc = null; render(); }); return; }
     S.view = nav.dataset.view;
+    if (S.view === 'md') { enterMdView().catch((err) => toast(err.message, 'error')); return; }
     if (S.view === 'mods' && S.status?.letheRoot) loadModDetail(S.selected).then(() => render()).catch(() => render());
     else render();
     return;
@@ -2184,19 +2525,115 @@ document.addEventListener('compositionend', (e) => {
 document.addEventListener('input', (e) => {
   if (imeComposing || e.isComposing) return;
   const t = e.target;
+
+  /* ---- 镜牢编辑：输入即写回草稿（不重绘，避免打断输入） ---- */
+  if (t.id === 'pk-q') {
+    const kw = t.value;
+    clearTimeout(S.pkTimer);
+    S.pkTimer = setTimeout(() => { pkLoad(kw).catch((err) => toast(err.message, 'error')); }, 200);
+    return;
+  }
+  if (t.id === 'md-search') { S.mdSearch = t.value; render(); refocus('md-search', t.value.length); return; }
+  if (t.id === 'md-name') {
+    if (S.md) {
+      S.md.locale.name = t.value;
+      S.mdDirty = true;
+      const ttl = document.querySelector('.skill-title strong');
+      if (ttl) ttl.textContent = t.value || '未命名草稿';
+      const hint = document.getElementById('session-state');
+      if (hint) { hint.className = 'session-state dirty'; hint.textContent = '有未保存改动'; }
+    }
+    return;
+  }
+  if (t.id === 'md-name-zh') { if (S.md) { S.md.locale.nameZh = t.value; S.mdDirty = true; } return; }
+  if (t.id === 'md-desc') { if (S.md) { S.md.locale.desc = t.value; S.mdDirty = true; } return; }
+  if (t.id === 'md-desc-zh') { if (S.md) { S.md.locale.descZh = t.value; S.mdDirty = true; } return; }
+  if (t.dataset && t.dataset.mdpool && S.md) {
+    const key = t.dataset.mdpool;
+    const box = (S.md.entity.mapGenOption ||= {});
+    box[key] = t.value.split(/[\s,，]+/).filter(Boolean).map((x) => Number(x)).filter((n) => Number.isFinite(n));
+    S.mdDirty = true;
+    return;
+  }
+  if (t.dataset && t.dataset.mdinfo) { mdSetField(t); return; }
+  if (t.dataset && t.dataset.mdobj && S.md) {
+    const key = t.dataset.mdobj;
+    const box = (S.md.entity[key] ||= {});
+    box[t.dataset.col] = t.type === 'number' ? (Number(t.value) || 0) : t.value;
+    S.mdDirty = true;
+    return;
+  }
+  if (t.dataset && t.dataset.mdwave && S.md) {
+    const w = (S.md.entity.waveList || [])[Number(t.dataset.wave)];
+    if (w) { w[t.dataset.mdwave] = t.type === 'number' ? (Number(t.value) || 0) : t.value; S.mdDirty = true; }
+    return;
+  }
+  if (t.dataset && t.dataset.mdunit && S.md) {
+    const w = (S.md.entity.waveList || [])[Number(t.dataset.wave)];
+    const u = w?.[t.dataset.slot || 'units']?.[Number(t.dataset.uindex)];
+    if (u) { u[t.dataset.mdunit] = Math.max(t.dataset.mdunit === 'unitID' ? 0 : 1, Number(t.value) || 0); S.mdDirty = true; }
+    return;
+  }
+  if (t.dataset && t.dataset.mdrow !== undefined && S.md) {
+    const i = Number(t.dataset.index);
+    const key = t.dataset.list || 'upgradeList';
+    const row = S.md.entity[key]?.[i];
+    if (row) { row[t.dataset.mdrow] = mdRowValue(key, t.dataset.mdrow, t.value, t.type === 'number'); S.mdDirty = true; }
+    return;
+  }
+  if (t.dataset && t.dataset.mdnodeCount !== undefined && S.md) {
+    const i = Number(t.dataset.index);
+    if (S.md.entity.nodeList?.[i]) S.md.entity.nodeList[i].count = Math.max(1, Number(t.value) || 1);
+    S.mdDirty = true;
+    return;
+  }
   /* 立绘弹窗在 #modal-root 里（不在 #personality-form 内），这两条必须放在最前面 */
   if (t.id === 'pf-app-q') { S.pfAppQ = t.value; renderPfApps(); return; }
   if (t.id === 'p-app') { S.pAppQ = t.value; const box = $('#p-app-list'); if (box) box.innerHTML = (S.pAppOptions || []).filter((a) => !t.value || String(a).toLowerCase().includes(t.value.toLowerCase())).slice(0, 8).map((a) => '<button class="p-app-item" data-act="p-app-set" data-app="' + esc(a) + '">' + esc(a) + '</button>').join(''); return; }
+  const bxEl = t.closest('[data-buff-extra]');
+  if (bxEl && S.buff) {
+    const i = Number(bxEl.dataset.buffExtra);
+    if (Number.isInteger(i)) {
+      S.buffExtras = Array.isArray(S.buffExtras) ? S.buffExtras.slice() : [];
+      while (S.buffExtras.length <= i) S.buffExtras.push(null);
+      S.buffExtras[i] = bxEl.value;
+      const sv = document.querySelector('[data-act=buff-script-save]');
+      if (sv) sv.disabled = false;
+    }
+    return;
+  }
+  const bfEl = t.closest('[data-bfield]');
+  if (bfEl && S.buff) {
+    scheduleBuffFields();
+    return;
+  }
+  const bsEl = t.closest('[data-buff-script]');
+  if (bsEl && S.buff) {
+    const i = Number(bsEl.dataset.buffScript);
+    if (Number.isInteger(i)) {
+      const list = (Array.isArray(S.buffScripts) ? S.buffScripts
+        : ((S.buff.fileInfo && Array.isArray(S.buff.fileInfo.listEntries)) ? S.buff.fileInfo.listEntries.slice() : [])).slice();
+      while (list.length <= i) list.push('');
+      list[i] = bsEl.value;
+      S.buffScripts = list;
+      const saveBtn = document.querySelector('[data-act=buff-script-save]');
+      const resetBtn = document.querySelector('[data-act=buff-script-reset]');
+      if (saveBtn) saveBtn.disabled = false;
+      if (resetBtn) resetBtn.disabled = false;
+    }
+    return;
+  }
+  if (t.id === 'p-app-q') { S.pAppQ = t.value; render(); refocus('p-app-q', t.value.length); return; }
   if (t.closest('#personality-form')) {
-    if (t.dataset && (t.dataset.skillNum !== undefined || t.dataset.break !== undefined || t.dataset.buffStack !== undefined || t.dataset.buffTurn !== undefined)) { pScheduleDyn(); return; }
+    if (t.dataset && t.dataset.num) return;
+    if (t.dataset && (t.dataset.skillNum !== undefined || t.dataset.break !== undefined || t.dataset.buffStack !== undefined || t.dataset.buffTurn !== undefined)) return;
     if (t.id === 'p-skill-q') { S.pSkillQ = t.value; pSearchUnits('skill', t.value); return; }
     if (t.id === 'p-def-q') { S.pDefQ = t.value; pSearchUnits('def', t.value); return; }
     if (t.id === 'p-buff-q') { S.pBuffQ = t.value; pSearchUnits('buff', t.value); return; }
     if (t.id === 'p-passive-q') { S.pPassiveQ = t.value; pSearchUnits('passive', t.value); return; }
     if (t.dataset && t.dataset.tagq) {
       S.pTagQ = { ...(S.pTagQ || {}), [t.dataset.tagq]: t.value };
-      render();
-      refocus('p-tagq-' + t.dataset.tagq, t.value.length);
+      pRefreshTagHits(t.dataset.tagq);
       return;
     }
     if (t.id === 'np-id') { checkPersonalityId(t.value).catch(() => {}); }
@@ -2208,7 +2645,9 @@ document.addEventListener('input', (e) => {
   if (t.classList && t.classList.contains('coin-desc')) { scheduleCoinDesc(Number(t.dataset.index) || 0); return; }
   if (t.id === 'skill-search') { S.skillSearch = t.value; render(); refocus('skill-search', t.value.length); return; }
   if (t.id === 'module-search') { S.moduleSearch = t.value; render(); refocus('module-search', t.value.length); return; }
-  if (t.id === 'passive-desc') { schedulePDesc(); return; }
+  if (t.id === 'p-name') { schedulePInfo(); return; }
+  if (t.id === 'p-desc') { schedulePInfo(); return; }
+  if (t.dataset && t.dataset.pcondVal !== undefined) { schedulePInfo(); return; }
   if (t.id === 'buff-desc') { scheduleBDesc(); return; }
   if (t.id === 'passive-search') { S.passiveSearch = t.value; render(); refocus('passive-search', t.value.length); return; }
   if (t.id === 'buff-search') { S.buffSearch = t.value; render(); refocus('buff-search', t.value.length); return; }
@@ -2229,7 +2668,31 @@ document.addEventListener('change', (e) => {
     rd.readAsDataURL(f);
     return;
   }
+
+  /* ---- 人格编辑：数字/文本在 change（失焦）时落盘，避免逐键重绘 ---- */
+  if (e.target && e.target.closest && e.target.closest('#personality-form')) {
+    const et = e.target;
+    if (et.dataset && (et.dataset.num || et.dataset.field)) schedulePatch();
+    if (et.dataset && (et.dataset.skillNum !== undefined || et.dataset.break !== undefined || et.dataset.buffStack !== undefined || et.dataset.buffTurn !== undefined)) pScheduleDyn();
+  }
+
+  /* ---- 镜牢编辑：选择类控件（下拉/复选） ---- */
+  if (t.dataset && t.dataset.mdinfo && S.md) { mdSetField(t); return; }
+  if (t.dataset && t.dataset.mdnodeType !== undefined && S.md) {
+    const i = Number(t.dataset.index);
+    if (S.md.entity.nodeList?.[i]) S.md.entity.nodeList[i].type = t.value;
+    S.mdDirty = true;
+    return;
+  }
+  if (t.dataset && t.dataset.mdrow !== undefined && S.md) {
+    const i = Number(t.dataset.index);
+    const key = t.dataset.list || 'upgradeList';
+    const row = S.md.entity[key]?.[i];
+    if (row) { row[t.dataset.mdrow] = mdRowValue(key, t.dataset.mdrow, t.value, t.type === 'number'); S.mdDirty = true; }
+    return;
+  }
   const t = e.target;
+  if (t.dataset && t.dataset.pcond) { schedulePInfo(); return; }
   if (t.dataset && t.dataset.tagsel) { pApplyTag(t.dataset.tagsel).catch((err) => toast(err.message, 'error')); return; }
   if (t.dataset && t.dataset.info) { scheduleInfo(); return; }
   if (t.dataset && t.dataset.pinfo) { schedulePInfo(); return; }
@@ -2416,17 +2879,58 @@ async function loadSkillList(name = S.selected) {
   S.skillDefaults = res.defaults || S.skillDefaults;
 }
 
+function pNormalizeSkill(sk) {
+  if (!sk) return sk;
+  const out = { ...sk };
+  const coinN = (out.code && Array.isArray(out.code.coins)) ? out.code.coins.length : 0;
+  if (!String(out.description || '') && out.localeText) {
+    out.description = out.localeText;
+    out.descSource = 'locale';
+  }
+  const fi = out.fileInfo || null;
+  if (fi) {
+    const keep = { ...(out.info || {}) };
+    ['defType', 'skillType'].forEach((k) => { delete keep[k]; });
+    out.info = Object.assign(keep, {
+      basePower: fi.basePower,
+      atkCorrection: fi.atkCorrection,
+      targetNum: fi.targetNum,
+      physical: fi.physical || keep.physical,
+      sin: fi.sin || keep.sin,
+      sign: fi.sign || keep.sign,
+    });
+    out.infoSource = 'file';
+  }
+  const total = Number(out.coinTotal || 0);
+  if (out.code && Array.isArray(out.code.coins) && total > 0) {
+    const coins = out.code.coins.slice(0, total).map((c) => ({ ...c }));
+    while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
+    out.code = { ...out.code, coins };
+  }
+  if (out.info && total > 0) out.info.coinCount = total;
+  const base = Array.isArray(out.coinDescs) ? out.coinDescs.slice() : [];
+  const loc = Array.isArray(out.localeCoinTexts) ? out.localeCoinTexts : [];
+  const filled = [];
+  for (let i = 0; i < Math.max(coinN, base.length, loc.length, Number(out.coinTotal || 0), Number((out.info && out.info.coinCount) || 0)); i += 1) {
+    const mine = String(base[i] == null ? '' : base[i]);
+    filled.push(mine || String(loc[i] == null ? '' : loc[i]));
+  }
+  if (filled.some((x) => x) && !base.some((x) => String(x || ''))) out.descSource = 'locale';
+  out.coinDescs = filled;
+  return out;
+}
+
 async function reloadSkill() {
   if (!S.selected || !S.skillId) return;
   const res = await api('/api/skill?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(S.skillId));
-  S.skill = res.skill;
+  S.skill = pNormalizeSkill(res.skill);
   await refreshSession(S.selected);
   await checkDesc();
 }
 
 async function openSkill(id) {
   const res = await api('/api/skill?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(id));
-  S.skill = res.skill;
+  S.skill = pNormalizeSkill(res.skill);
   S.skillId = String(id);
   S.sessionKey = 'skill:' + id;
   S.descCheck = null;
@@ -2496,7 +3000,9 @@ function renderSkillMain() {
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
     + '<button class="btn primary sm" data-act="save-personality">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
-    + '<div class="skill-body"><div class="info-card skill-info"><div class="col-title">基础信息</div><div class="grid-2">'
+    + '<div class="skill-body"><div class="info-card skill-info"><div class="col-title">基础信息</div>'
+    + (sk.infoSource === 'file' ? '<div class="hint muted" style="margin:-2px 0 8px">以下数值直接取自技能文件；改动会写回技能文件并记入撤销历史。</div>' : '')
+    + '<div class="grid-2">'
     + field('基础威力', 'basePower') + field('硬币数量', 'coinCount', 'number', 'min="1" max="12"')
     + field('攻击修正值', 'atkCorrection') + field('攻击容量', 'targetNum')
     + sel('物理属性', 'physical', S.keywords?.physical || []) + sel('罪孽属性', 'sin', S.keywords?.sin || [])
@@ -2514,14 +3020,57 @@ function chipHtml(arr, zone, idx) {
     + '<button class="chip-x" data-act="remove-placed" data-zone="' + zone + '" data-index="' + idx + '" data-mid="' + esc(mid) + '">×</button></span>').join('');
 }
 
+function renderSkillScriptCards(group) {
+  const rows = (group.parsed && group.parsed.rows) || [];
+  if (!rows.length) { return ''; }
+  const matched = group.matchedModules || [];
+  const modOf = (mid) => {
+    const m = (S.modules || []).find((x) => x.id === mid);
+    return m ? (m.name || mid) : mid;
+  };
+  const cards = rows.map((r, i) => {
+    const mod = matched[i] ? modOf(matched[i]) : '';
+    return '<div class="pr-card">'
+      + '<div class="pr-head">'
+      + '<span class="pr-hat">' + (r.timing ? '⚑ ' + esc(pTimingLabel(r.timing)) : '未识别时点') + '</span>'
+      + (r.loop ? '<span class="pr-tag">遍历 ' + esc(pTargetLabel(r.loop.n)) + (r.loop.c ? ' × ' + r.loop.c : '') + '</span>' : '')
+      + '<span class="pr-tag">' + (r.blockCount || 0) + ' 个块</span>'
+      + (mod ? '<span class="pr-tag pr-mod">模块：' + esc(mod) + '</span>' : '<span class="pr-tag pr-raw">外部脚本</span>')
+      + '</div>'
+      + (mod ? '' : '<div class="pr-tree">' + pParsedTree(r.stmts, 0) + '</div>')
+      + '<details class="pr-code"><summary>脚本原文</summary><pre>' + esc(r.code) + '</pre></details>'
+      + '</div>';
+  }).join('');
+  return cards;
+}
+
+function renderSkillGroups(doc) {
+  const groups = Array.isArray(doc.scriptGroups) ? doc.scriptGroups : [];
+  const total = groups.reduce((n, g) => n + ((g.parsed && g.parsed.rows.length) || 0), 0);
+  if (!total) { return ''; }
+  const blocks = groups.map((g) => {
+    const cards = renderSkillScriptCards(g);
+    const plain = (g.plain || []).length
+      ? '<div class="hint muted">非模块脚本（游戏内置效果，不在编辑器里编辑）：' + g.plain.map((x) => '「' + x + '」').join(' ') + '</div>'
+      : '';
+    return '<div class="sg-block"><div class="col-title">' + esc(g.label) + ' <span class="muted">（' + ((g.parsed && g.parsed.rows.length) || 0) + ' 条 Modular 脚本）</span></div>'
+      + plain + cards + '</div>';
+  }).join('');
+  return '<div class="pr-wrap"><div class="col-title">已识别的脚本 <span class="muted">（技能级与每枚硬币，共 ' + total + ' 条）</span></div>'
+    + '<div class="hint muted">这里只做识别：改脚本请用上方的置入区，或到模块编辑里改模块。</div>'
+    + blocks + '</div>';
+}
+
 function renderSkillCode(code) {
   const colors = S.keywords?.coinColors || [{ id: 'GREY', zh: '灰' }];
   const skillZone = '<div class="drop-zone skill-zone" data-drop="skill">'
-    + (chipHtml(code.skill, 'skill', -1) || '<span class="dz-hint">把模块拖到这里：作用于技能本身</span>') + '</div>';
+    + (chipHtml(code.skill, 'skill', -1) || '<span class="dz-hint">把模块拖到这里：作用于技能本身</span>') + '</div>'
+    + renderSkillGroups(S.skill || code)
+    ;
   const coins = (code.coins || []).map((c, i) => '<div class="coin-card"><div class="coin-head"><strong>硬币 ' + (i + 1) + '</strong>'
     + '<select data-coin="' + i + '" data-key="color">'
     + colors.map((x) => '<option value="' + esc(x.id) + '"' + (String(c.color) === String(x.id) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('')
-    + '</select><label class="inline-field">变动值 <input type="number" data-coin="' + i + '" data-key="value" value="' + esc(c.value ?? 0) + '"></label></div>'
+    + '</select><label class="inline-field">变动值 <input type="text" inputmode="decimal" data-num="1" data-coin="' + i + '" data-key="value" value="' + esc(c.value ?? 0) + '"></label></div>'
     + '<div class="drop-zone coin-zone" data-drop="coin" data-index="' + i + '">'
     + (chipHtml(c.modules, 'coin', i) || '<span class="dz-hint">拖入模块：作用于这枚硬币</span>') + '</div></div>').join('');
   return '<div class="code-wrap"><div class="code-col"><div class="col-title">技能置入区</div>' + skillZone + '</div>'
@@ -2558,7 +3107,9 @@ function coinDescOf(sk, i) {
 }
 function coinDescCount(sk) {
   const n = (sk && sk.code && Array.isArray(sk.code.coins)) ? sk.code.coins.length : 0;
-  return Math.max(0, n);
+  const d = (sk && Array.isArray(sk.coinDescs)) ? sk.coinDescs.length : 0;
+  const g = (sk && Array.isArray(sk.localeCoinSegs)) ? sk.localeCoinSegs.length : 0;
+  return Math.max(0, n, d, g);
 }
 function descStateOf(kind, i) {
   const all = S.descChecks || {};
@@ -2593,20 +3144,39 @@ function renderSkillDesc(sk) {
     const ct = coinDescOf(sk, i);
     const cst = descStateOf('coin', i);
     coins.push('<div class="coin-desc-card">'
-      + '<div class="coin-desc-head"><span class="cd-tag">硬币 ' + (i + 1) + '</span><span class="muted">这一枚硬币命中/使用时显示的描述</span></div>'
-      + '<textarea id="coin-desc-' + i + '" class="desc-input coin-desc" data-index="' + i + '" spellcheck="false" rows="3" placeholder="例如：[命中时]对目标施加1层[烧伤]">' + esc(ct) + '</textarea>'
+      + (() => {
+        const segs = Array.isArray(sk.localeCoinSegs) ? Number(sk.localeCoinSegs[i] || 0) : 0;
+        const lines = String(ct || '').split('\n').filter((x) => x.trim()).length;
+        const rows = Math.max(3, Math.min(8, lines + 1));
+        const tip = segs > 1
+          ? '这一枚硬币有 <b>' + segs + '</b> 段描述（每行一段，保存时按行拆回文件）'
+          : '这一枚硬币命中/使用时显示的描述';
+        return '<div class="coin-desc-head"><span class="cd-tag">硬币 ' + (i + 1) + '</span>'
+          + (segs > 1 ? '<span class="seg-badge">' + segs + ' 段</span>' : '')
+          + '<span class="muted">' + tip + '</span></div>'
+          + '<textarea id="coin-desc-' + i + '" class="desc-input coin-desc" data-index="' + i + '" spellcheck="false" rows="' + rows + '" placeholder="例如：[命中时]对目标施加1层[烧伤]">' + esc(ct) + '</textarea>';
+      })()
       + '<div class="desc-preview" id="coin-preview-' + i + '">' + highlightText(ct, cst.tokens || []) + '</div>'
       + '<div class="coin-check" id="coin-check-' + i + '">' + descCheckHtml(cst) + '</div>'
       + '</div>');
   }
   const gameAll = [st.game || '', ...Array.from({ length: n }, (_, i) => descStateOf('coin', i).game || '')].filter(Boolean).join('\n');
+  const fromFile = (sk.descSource === 'locale') && !String(sk.descriptionEdited || '');
   return '<div class="desc-wrap">'
+    + (fromFile ? '<div class="banner soft">以下描述是从技能文件里的游戏写法还原的（[英文id] → 中文名）；改动并保存后会按游戏写法写回 locale。</div>' : '')
     + '<div class="desc-block"><div class="desc-block-head"><strong>技能描述</strong><span class="muted">技能本体（非硬币）的说明文本，用 [关键词] 书写</span></div>'
     + descKwToolsHtml()
     + '<textarea id="skill-desc" class="desc-input" spellcheck="false" rows="6" placeholder="例如：[使用时]使本技能的硬币威力+1">' + esc(text) + '</textarea>'
     + '<div class="desc-preview" id="desc-preview">' + highlightText(text, st.tokens || []) + '</div>'
     + '<div id="desc-check">' + descCheckHtml(st) + '</div></div>'
-    + '<div class="desc-block"><div class="desc-block-head"><strong>硬币描述</strong><span class="muted">数量跟随「硬币数量」，每枚硬币一段</span></div>'
+    + (() => {
+      const nc = (sk.code && Array.isArray(sk.code.coins)) ? sk.code.coins.length : 0;
+      const nd = coinDescCount(sk);
+      return nc < nd
+        ? '<div class="banner soft">文件里只有 ' + nc + ' 枚硬币数据，但描述有 ' + nd + ' 段；下面按描述段数列出，保存时会写回文件里已有的段落。</div>'
+        : '';
+    })()
+    + '<div class="desc-block"><div class="desc-block-head"><strong>硬币描述</strong><span class="muted">数量跟随「硬币数量」，每枚硬币一段；同一枚硬币的多段描述请分多行写</span></div>'
     + '<div class="coin-desc-grid">' + (coins.join('') || '<div class="muted" style="padding:8px 2px">当前技能还没有硬币；把「硬币数量」调到 1 以上即可</div>') + '</div></div>'
     + '<details class="game-text"><summary>游戏内文本预览（关键词已转为英文 id）</summary><pre id="game-text">' + esc(gameAll) + '</pre></details>'
     + '<div class="hint muted">描述改动在停止输入后写入磁盘并记入撤销历史；代码区（拖拽）不进撤销。</div></div>' + descKwListHtml();
@@ -2684,12 +3254,16 @@ async function flushInfo() {
     const k = el.dataset.info;
     info[k] = el.tagName === 'SELECT' ? el.value : Number(el.value);
   });
-  const res = await api('/api/skill/meta', { method: 'POST', body: { name: S.selected, id: S.skillId, info } });
-  const oldCount = (S.skill.code?.coins || []).length;
-  S.skill = { ...S.skill, info: res.meta.info, code: res.meta.code, coinDescs: res.meta.coinDescs || S.skill.coinDescs };
+  const before = (S.skill.code?.coins || []).length;
+  const res = await api('/api/skill/state', { method: 'POST', body: { name: S.selected, id: S.skillId, info } });
+  S.skill = { ...S.skill, info: res.info, infoSource: 'file' };
+  const total = Number(res.info.coinCount) || before;
+  const coins = (S.skill.code?.coins || []).slice(0, total).map((c) => ({ ...c }));
+  while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
+  S.skill = { ...S.skill, code: { ...(S.skill.code || {}), coins } };
   S.session = res.session;
   updateSkillDom();
-  if ((res.meta.code?.coins || []).length !== oldCount) render();
+  if (coins.length !== before) render();
 }
 
 function updateSkillDom() {
@@ -3016,9 +3590,30 @@ async function loadBuffList(name = S.selected) {
   S.modulesLoaded = true;
 }
 
+function pNormalizePassive(passive) {
+  if (!passive) return passive;
+  const info = { ...(passive.info || {}) };
+  const cond = passive.conditions || {};
+  const stock = Array.isArray(info.stockConditions) ? info.stockConditions : [];
+  const reso = Array.isArray(info.resonanceConditions) ? info.resonanceConditions : [];
+  if (!stock.length && !reso.length) {
+    if (Array.isArray(cond.stock) && cond.stock.length) {
+      info.conditionMode = 'stock';
+      info.stockConditions = cond.stock.map((c) => ({ type: String(c.type || 'CRIMSON'), value: Number(c.value) || 1 }));
+    } else if (Array.isArray(cond.resonance) && cond.resonance.length) {
+      info.conditionMode = 'resonance';
+      info.resonanceConditions = cond.resonance.slice(0, 1).map((c) => ({ type: String(c.type || 'CRIMSON'), value: Number(c.value) || 1 }));
+    }
+  }
+  if (!['none', 'stock', 'resonance'].includes(info.conditionMode)) info.conditionMode = 'none';
+  info.stockConditions = Array.isArray(info.stockConditions) ? info.stockConditions : [];
+  info.resonanceConditions = Array.isArray(info.resonanceConditions) ? info.resonanceConditions : [];
+  return { ...passive, info };
+}
+
 async function openPassive(id) {
   const res = await api('/api/passive?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(id));
-  S.passive = res.passive;
+  S.passive = pNormalizePassive(res.passive);
   S.passiveId = String(id);
   S.sessionKey = 'passive:' + id;
   S.pDescCheck = null;
@@ -3030,14 +3625,37 @@ async function openPassive(id) {
 async function reloadPassive() {
   if (!S.selected || !S.passiveId) return;
   const res = await api('/api/passive?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(S.passiveId));
-  S.passive = res.passive;
+  S.passive = pNormalizePassive(res.passive);
   await refreshSession(S.selected);
   await checkPDesc();
 }
 
+function pNormalizeBuff(buff) {
+  if (!buff) return buff;
+  const out = { ...buff };
+  const fi = out.fileInfo || null;
+  if (fi) {
+    out.info = Object.assign({}, out.info || {}, {
+      buffClass: fi.buffClass || (out.info || {}).buffClass,
+      buffType: fi.buffType || (out.info || {}).buffType,
+      canBeDespelled: fi.canBeDespelled !== false,
+      maxStack: fi.maxStack == null ? (out.info || {}).maxStack : fi.maxStack,
+      maxTurn: fi.maxTurn == null ? (out.info || {}).maxTurn : fi.maxTurn,
+      iconId: fi.iconId || (out.info || {}).iconId || '',
+    });
+    out.infoSource = 'file';
+  }
+  if (!String(out.description || '') && out.localeDesc) {
+    out.description = out.localeDesc;
+    out.descriptionSource = 'locale';
+  }
+  return out;
+}
+
 async function openBuff(id) {
   const res = await api('/api/buff?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(id));
-  S.buff = res.buff;
+  S.buff = pNormalizeBuff(res.buff);
+  S.buffScripts = null;
   S.buffId = String(id);
   S.sessionKey = 'buff:' + id;
   S.bDescCheck = null;
@@ -3047,9 +3665,11 @@ async function openBuff(id) {
 }
 
 async function reloadBuff() {
+  S.buffExtras = null;
   if (!S.selected || !S.buffId) return;
   const res = await api('/api/buff?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(S.buffId));
-  S.buff = res.buff;
+  S.buff = pNormalizeBuff(res.buff);
+  S.buffScripts = null;
   await refreshSession(S.selected);
   await checkBDesc();
 }
@@ -5043,31 +5663,374 @@ function renderPassiveArea(back) {
     + '</div>';
 }
 
+function pSinOptions(current) {
+  const sins = (S.keywords && S.keywords.sins) || [];
+  const list = sins.length ? sins : [
+    { id: 'CRIMSON', zh: '暴怒' }, { id: 'SCARLET', zh: '色欲' }, { id: 'AMBER', zh: '怠惰' },
+    { id: 'SHAMROCK', zh: '暴食' }, { id: 'AZURE', zh: '忧郁' }, { id: 'INDIGO', zh: '傲慢' },
+    { id: 'VIOLET', zh: '嫉妒' }, { id: 'WHITE', zh: '疯狂' }, { id: 'BLACK', zh: '哀叹' },
+  ];
+  return list.map((x) => '<option value="' + esc(x.id) + '"' + (String(x.id) === String(current) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('');
+}
+
+function pCondRows(which, list) {
+  const rows = (list || []).map((c, i) => '<div class="p-cond-row">'
+    + '<select data-pcond="' + which + '" data-idx="' + i + '">' + pSinOptions(c.type) + '</select>'
+    + '<input type="text" inputmode="decimal" data-num="1" min="1" max="99" step="1" inputmode="numeric" data-pcond-val="' + which + '" data-idx="' + i + '" value="' + esc(c.value ?? 1) + '">'
+    + '<button class="icon-btn" data-act="p-cond-del" data-which="' + which + '" data-idx="' + i + '" title="删除这条条件">✕</button>'
+    + '</div>').join('');
+  return rows || '<div class="hint muted">还没有条件，点下面的「＋ 添加条件」。</div>';
+}
+
+function renderPassiveInfo(p) {
+  const info = p.info || {};
+  const mode = info.conditionMode || 'none';
+  const seg = (id, label) => '<button class="seg' + (mode === id ? ' active' : '') + '" data-act="p-mode" data-p-mode="' + id + '">' + label + '</button>';
+  const addBtn = mode === 'none'
+    ? ''
+    : (mode === 'resonance' && (info.resonanceConditions || []).length >= 1
+      ? '<div class="hint muted">资源共鸣只支持 1 条条件。</div>'
+      : '<button class="btn ghost sm" data-act="p-cond-add" data-which="' + (mode === 'stock' ? 'stock' : 'resonance') + '">＋ 添加条件</button>');
+  return '<div class="info-card"><div class="col-title">被动基础信息</div>'
+    + '<div class="seg-row">' + seg('none', '无条件') + seg('stock', '资源拥有') + seg('resonance', '资源共鸣') + '</div>'
+    + (mode === 'none'
+      ? '<div class="hint muted">这份被动没有启动条件（原版 2,801 个被动里 2,275 个都属于这一类）。</div>'
+      : (mode === 'stock'
+        ? '<div class="p-cond-list">' + pCondRows('stock', info.stockConditions) + '</div>'
+          + '<div class="hint muted">资源拥有：拥有 N 个某罪孽资源时生效（原版最多 3 条，可叠加不同罪孽）。</div>'
+        : '<div class="p-cond-list">' + pCondRows('resonance', info.resonanceConditions) + '</div>'
+          + '<div class="hint muted">资源共鸣：某罪孽共鸣达到 N 时生效（原版只有 1 条）。</div>'))
+    + addBtn
+    + '</div>';
+}
+
+function renderPassiveDesc(p) {
+  const name = typeof p.localeName === 'string' ? p.localeName : (p.name || '');
+  const text = typeof p.description === 'string' ? p.description : '';
+  const st = S.pDescCheck || { tokens: [], unknown: [] };
+  const fromFile = p.descriptionSource === 'locale' && !String(p.localeDescEdited || '');
+  return '<div class="desc-wrap"><div class="desc-block"><div class="desc-block-head"><strong>被动名字与描述</strong><span class="muted">直接写入游戏本地化</span></div>'
+    + (fromFile ? '<div class="banner soft">以下描述是从被动文件里的游戏写法还原的（[英文id] → 中文名）；改动并保存后会按游戏写法写回 locale。</div>' : '')
+    + '<label class="field"><span>被动名字</span><input id="p-name" class="desc-input slim" autocomplete="off" placeholder="例如 灼热抗性" value="' + esc(name) + '"></label>'
+    + '<label class="field"><span>被动描述</span><textarea id="p-desc" class="desc-input" spellcheck="false" rows="7" placeholder="例如：[回合开始时]获得1层[烧伤]">' + esc(text) + '</textarea></label>'
+    + '<div class="desc-preview" id="p-desc-preview">' + highlightText(text, st.tokens || []) + '</div>'
+    + '<div class="desc-check ' + ((st.unknown || []).length ? 'bad' : 'ok') + '" id="p-desc-check">'
+    + ((st.unknown || []).length ? '⚠ 有 ' + st.unknown.length + ' 个关键词未识别：' + st.unknown.map((u) => '[' + u + ']').join(' ') : '✓ 关键词检查通过')
+    + '</div><div class="hint muted">保存时把 [中文关键词] 转成游戏用的英文写法写入 locale；这里显示的中文原文只存在编辑器里。</div></div></div>';
+}
+
 function renderPassiveMain() {
   if (!S.passive) {
     return '<section class="panel skill-main"><div class="panel-head">被动</div><div class="panel-body">'
       + '<div class="empty-state"><div class="empty-mark">◇</div><p>从左侧选一个被动</p><small class="muted">或新建 / 导入</small></div></div></section>';
   }
   const p = S.passive;
-  const info = p.info || {};
   const sess = S.session || {};
   return '<section class="panel skill-main"><div class="panel-head skill-head">'
-    + '<div class="skill-title"><strong>' + esc(p.name || p.id) + '</strong><small>' + esc(p.id) + (p.override ? ' · 原版覆盖' : '') + '</small></div>'
+    + '<div class="skill-title"><strong>' + esc(p.localeName || p.name || p.id) + '</strong><small>' + esc(p.id) + (p.override ? ' · 原版覆盖' : '') + '</small></div>'
     + '<span class="spacer"></span>'
     + '<button class="btn ghost sm" data-act="undo"' + (sess.undo ? '' : ' disabled') + '>撤销</button>'
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
     + '<button class="btn primary sm" data-act="save-passive">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
-    + '<div class="skill-body"><div class="info-card"><div class="col-title">被动基础信息</div>'
-    + '<div class="hint muted">「罪孽条件」已从人格页与被动页移除（文档 17 第 5 条）：被动是否带条件由被动脚本自身决定。</div>'
-    + '</div><div class="editor-card"><div class="tabs">'
+    + '<div class="skill-body passive-body">'
+    + '<div class="editor-card"><div class="tabs">'
     + '<button class="tab ' + (S.passiveTab === 'code' ? 'active' : '') + '" data-act="passive-tab" data-tab="code">代码</button>'
     + '<button class="tab ' + (S.passiveTab === 'desc' ? 'active' : '') + '" data-act="passive-tab" data-tab="desc">描述</button></div>'
-    + (S.passiveTab === 'desc' ? renderSimpleDesc('passive', p) : renderSimpleCode('passive', p))
+    + (S.passiveTab === 'desc' ? renderPassiveDesc(p) : (renderPassiveInfo(p) + renderSimpleCode('passive', p)))
     + '</div></div></section>';
 }
 
 /* ------------------------------ Buff 编辑 ------------------------------ */
+
+/* ------------------------- 镜牢卡包 / 镜牢饰品（schema 驱动） ------------------------- */
+
+const SIN_OPTS = [
+  { id: 'CRIMSON', zh: '暴怒' }, { id: 'SCARLET', zh: '色欲' }, { id: 'AMBER', zh: '怠惰' },
+  { id: 'SHAMROCK', zh: '暴食' }, { id: 'AZURE', zh: '忧郁' }, { id: 'INDIGO', zh: '傲慢' },
+  { id: 'VIOLET', zh: '嫉妒' }, { id: 'WHITE', zh: '疯狂' }, { id: 'BLACK', zh: '哀叹' },
+  { id: 'NEUTRAL', zh: '无属性' },
+];
+const PHYS_OPTS = [
+  { id: 'SLASH', zh: '斩击' }, { id: 'HIT', zh: '打击' }, { id: 'PENETRATE', zh: '突刺' }, { id: 'NONE', zh: '无' },
+];
+
+async function ensureMdSchemas() {
+  if (S.mdSchemas) return S.mdSchemas;
+  const res = await api('/api/md/kinds');
+  S.mdSchemas = res.kinds || [];
+  return S.mdSchemas;
+}
+
+function mdSpec(kind) {
+  return (S.mdSchemas || []).find((s) => s.kind === kind) || { kind, zh: '镜牢表', fields: [], nodeTypes: [], defaults: {} };
+}
+
+async function loadMdList(name = S.selected, kind = S.editKind) {
+  if (!name || !kind) return;
+  const res = await api(`/api/md/list?kind=${kind}&name=${encodeURIComponent(name)}`);
+  S.mdList = res.items || [];
+}
+
+/** 行内单元格写回：按列声明的类型清洗（nums 列必须存数组，否则渲染时 .join 会炸） */
+function mdRowValue(key, colKey, raw, isNumberInput) {
+  const spec = mdSpec(S.editKind);
+  const f = (spec.fields || []).find((x) => x.key === key);
+  const c = f && Array.isArray(f.cols) ? f.cols.find((x) => x.key === colKey) : null;
+  const type = c ? c.type : (isNumberInput ? 'number' : 'text');
+  if (type === 'nums') {
+    return String(raw || '').split(/[\s,，]+/).filter(Boolean)
+      .map((x) => Number(x)).filter((n) => Number.isFinite(n));
+  }
+  if (type === 'number') return Number(raw) || 0;
+  return raw;
+}
+
+/** 输入写回内存（不重绘，避免输入过程光标跳动） */
+function mdSetField(el) {
+  if (!S.md) return;
+  const key = el.dataset.mdinfo;
+  const spec = mdSpec(S.editKind);
+  const f = (spec.fields || []).find((x) => x.key === key);
+  const type = f ? f.type : 'text';
+  let v;
+  if (type === 'bool') v = el.checked;
+  else if (type === 'boolstr') v = el.checked ? 'true' : 'false';
+  else if (type === 'number') v = Number(el.value) || 0;
+  else if (type === 'nums') v = el.value.split(/[\s,，]+/).filter(Boolean).map((x) => Number(x)).filter((n) => Number.isFinite(n));
+  else if (type === 'ids') v = el.value.split(/[\s,，]+/).filter(Boolean);
+  else if (type === 'tags') v = el.value.split(/[\s,，]+/).filter(Boolean).map((x) => x.toUpperCase());
+  else if (type === 'scripts') v = el.value.split(/[\n,，]+/).map((x) => x.trim()).filter(Boolean);
+  else if (type === 'nodes' || type === 'rows' || type === 'pools' || type === 'mental') return;
+  else v = el.value;
+  S.md.entity[key] = v;
+  S.mdDirty = true;
+}
+
+function mdEnumOptions(f) {
+  if (Array.isArray(f.options)) return f.options;
+  if (f.options === 'SIN') return SIN_OPTS;
+  if (f.options === 'PHYSICAL') return PHYS_OPTS;
+  return [];
+}
+
+function mdFieldHtml(f, entity) {
+  const val = entity[f.key];
+  const hint = f.hint ? `<div class="hint muted">${esc(f.hint)}</div>` : '';
+  if (f.type === 'bool' || f.type === 'boolstr') {
+    const on = f.type === 'boolstr' ? (val === true || val === 'true') : Boolean(val);
+    return `<label class="field check"><input type="checkbox" data-mdinfo="${f.key}"${on ? ' checked' : ''}><span>${esc(f.zh)}</span></label>`;
+  }
+  if (f.type === 'enum') {
+    const opts = mdEnumOptions(f).map((o) => `<option value="${o.id}"${String(o.id) === String(val) ? ' selected' : ''}>${esc(o.zh)}${o.id && o.id !== o.zh ? '（' + esc(o.id) + '）' : ''}</option>`).join('');
+    return `<label class="field"><span>${esc(f.zh)}</span><select data-mdinfo="${f.key}">${opts}</select>${hint}</label>`;
+  }
+  if (f.type === 'object') {
+    const cols = f.cols || [];
+    const cells = cols.map((c) => `<label class="inline-field"><span>${esc(c.zh)}</span>${c.type === 'number'
+      ? `<input type="text" inputmode="decimal" data-num="1" data-mdobj="${f.key}" data-col="${c.key}" value="${esc(val?.[c.key] ?? 0)}">`
+      : `<input type="text" data-mdobj="${f.key}" data-col="${c.key}" value="${esc(val?.[c.key] ?? '')}">`}</label>`).join('');
+    return `<div class="field wide"><span>${esc(f.zh)}</span><div class="md-row">${cells}</div>${hint}</div>`;
+  }
+  if (f.type === 'waves') {
+    const unitBlock = (w, i, slot, label) => {
+      const rows = (w[slot] || []).map((u, ui) => `<div class="md-row">
+        <input type="text" inputmode="decimal" data-num="1" data-mdunit="unitID" data-wave="${i}" data-slot="${slot}" data-uindex="${ui}" value="${Number(u.unitID) || 0}" title="单位 id">
+        <button class="btn ghost xs" data-act="pick" data-pick="unit" data-wave="${i}" data-slot="${slot}" data-uindex="${ui}" data-col="unitID" title="从游戏 / Mod 里挑敌人">挑</button>
+        <input type="text" inputmode="decimal" data-num="1" min="1" data-mdunit="unitCount" data-wave="${i}" data-slot="${slot}" data-uindex="${ui}" value="${Number(u.unitCount) || 1}" title="数量">
+        <input type="text" inputmode="decimal" data-num="1" min="1" data-mdunit="unitLevel" data-wave="${i}" data-slot="${slot}" data-uindex="${ui}" value="${Number(u.unitLevel) || 1}" title="等级">
+        <button class="btn ghost sm" data-act="md-del-unit" data-wave="${i}" data-slot="${slot}" data-uindex="${ui}">×</button></div>`).join('');
+      return `<div class="md-sub"><div class="col-title">${label}</div>${rows || '<div class="hint muted">还没有单位</div>'}
+        <button class="btn ghost sm" data-act="md-add-unit" data-wave="${i}" data-slot="${slot}">＋ 加单位</button></div>`;
+    };
+    const waves = (val || []).map((w, i) => `<div class="md-wave">
+      <div class="md-row"><span class="col-title">第 ${i + 1} 波</span><span class="muted">地图</span>
+        <input type="text" data-mdwave="mapName" data-wave="${i}" value="${esc(w.mapName ?? '')}" placeholder="LCorpEntrance">
+        <span class="muted">尺寸</span><input type="text" inputmode="decimal" data-num="1" data-mdwave="mapSize" data-wave="${i}" value="${esc(w.mapSize ?? 0)}">
+        <span class="muted">敌人站位</span><input type="text" inputmode="decimal" data-num="1" data-mdwave="enemyPositionID" data-wave="${i}" value="${esc(w.enemyPositionID ?? 0)}">
+        <button class="btn ghost sm" data-act="md-del-wave" data-wave="${i}">×</button></div>
+      <div class="md-row"><span class="muted">BGM（逗号分隔）</span><input type="text" class="grow" data-mdwave="bgm" data-wave="${i}" value="${esc(w.bgm ?? '')}" placeholder="Battle_Cp1_Enemy_2"></div>
+      ${unitBlock(w, i, 'units', '出场单位')}
+      ${unitBlock(w, i, 'subUnits', '副单位')}</div>`).join('');
+    return `<div class="field wide"><span>${esc(f.zh)}</span><div class="md-rows">${waves || '<div class="hint muted">还没有波次</div>'}</div>
+      <button class="btn ghost sm" data-act="md-add-wave">＋ 加一波</button>${hint}</div>`;
+  }
+  if (f.type === 'nodes') {
+    const rows = (val || []).map((n, i) => `<div class="md-row">
+      <select data-mdnode-type data-index="${i}">${(mdSpec(S.editKind).nodeTypes || []).map((t) => `<option value="${t.id}"${t.id === n.type ? ' selected' : ''}>${esc(t.zh)}</option>`).join('')}</select>
+      <input type="text" inputmode="decimal" data-num="1" min="1" data-mdnode-count data-index="${i}" value="${Number(n.count) || 1}">
+      <button class="btn ghost sm" data-act="md-del-node" data-index="${i}">×</button></div>`).join('');
+    return `<div class="field wide"><span>${esc(f.zh)}</span><div class="md-rows">${rows || '<div class="hint muted">还没有节点</div>'}</div>
+      <button class="btn ghost sm" data-act="md-add-node">＋ 加一个节点</button>${hint}</div>`;
+  }
+  if (f.type === 'rows') {
+    const cols = f.cols || [];
+    const cell = (c, row, i) => {
+      if (c.type === 'number') {
+        const pk = c.key === 'skillId' ? `<button class="btn ghost xs" data-act="pick" data-pick="skill" data-list="${f.key}" data-index="${i}" data-col="${c.key}" title="从游戏 / Mod 里挑技能">挑</button>`
+          : c.key === 'rewardId' ? `<button class="btn ghost xs" data-act="pick" data-pick="gift" data-list="${f.key}" data-index="${i}" data-col="${c.key}" title="从饰品表里挑">挑</button>` : '';
+        return `<input type="text" inputmode="decimal" data-num="1" data-mdrow="${c.key}" data-list="${f.key}" data-index="${i}" value="${esc(row[c.key] ?? '')}" title="${esc(c.zh)}">${pk}`;
+      }
+      if (c.type === 'nums') return `<input type="text" data-mdrow="${c.key}" data-list="${f.key}" data-index="${i}" value="${esc((row[c.key] || []).join(','))}" title="${esc(c.zh)}（逗号分隔）" placeholder="${esc(c.zh)}">`;
+      if (c.type === 'enum') {
+        const opts = mdEnumOptions(c).map((o) => `<option value="${esc(o.id)}"${String(o.id) === String(row[c.key]) ? ' selected' : ''}>${esc(o.zh)}</option>`).join('');
+        return `<select data-mdrow="${c.key}" data-list="${f.key}" data-index="${i}" title="${esc(c.zh)}">${opts}</select>`;
+      }
+      return `<input type="text" data-mdrow="${c.key}" data-list="${f.key}" data-index="${i}" value="${esc(row[c.key] ?? '')}" title="${esc(c.zh)}">`;
+    };
+    const rows = (val || []).map((row, i) => `<div class="md-row">${cols.map((c) => cell(c, row, i)).join('')}
+      <button class="btn ghost sm" data-act="md-del-row" data-list="${f.key}" data-index="${i}">×</button></div>`).join('');
+    return `<div class="field wide"><span>${esc(f.zh)}</span><div class="md-rows">${rows || '<div class="hint muted">还没有条目</div>'}</div>
+      <button class="btn ghost sm" data-act="md-add-row" data-list="${f.key}">＋ 加一条</button>${hint}</div>`;
+  }
+  if (f.type === 'pools') {
+    const cells = (f.cols || []).map((c) => `<label class="inline-field"><span>${esc(c.zh)}</span>
+      <input type="text" data-mdpool="${c.key}" value="${esc(((val || {})[c.key] || []).join(','))}" placeholder="id, id"></label>`).join('');
+    return `<div class="field wide"><span>${esc(f.zh)}</span><div class="md-row">${cells}</div>${hint}</div>`;
+  }
+  if (f.type === 'mental') {
+    const rows = (val || []).map((row, i) => `<div class="md-row">
+      <select data-mdrow="group" data-list="${f.key}" data-index="${i}">
+        <option value="add"${row.group === 'add' ? ' selected' : ''}>加成</option>
+        <option value="min"${row.group === 'min' ? ' selected' : ''}>减益</option></select>
+      <input type="text" inputmode="decimal" data-num="1" data-mdrow="level" data-list="${f.key}" data-index="${i}" value="${esc(row.level ?? 1)}" title="等级">
+      <input type="text" class="grow" data-mdrow="conditionIDs" data-list="${f.key}" data-index="${i}" value="${esc((row.conditionIDs || []).join(','))}" placeholder="条件 id，逗号分隔">
+      <button class="btn ghost sm" data-act="md-del-row" data-list="${f.key}" data-index="${i}">×</button></div>`).join('');
+    return `<div class="field wide"><span>${esc(f.zh)}</span><div class="md-rows">${rows || '<div class="hint muted">还没有条目</div>'}</div>
+      <button class="btn ghost sm" data-act="md-add-row" data-list="${f.key}">＋ 加一条</button>${hint}</div>`;
+  }
+  if (f.type === 'ids' || f.type === 'tags' || f.type === 'nums') {
+    const pk = f.key === 'abnormalityPartList' ? `<button class="btn ghost xs" data-act="pick" data-pick="part" data-field="${f.key}" title="从游戏 / Mod 里挑部位">挑</button>`
+      : (f.key === 'egoGiftPool' || f.key === 'fixedRewardEgoGifts') ? `<button class="btn ghost xs" data-act="pick" data-pick="gift" data-field="${f.key}" title="从饰品表里挑">挑</button>` : '';
+    return `<label class="field"><span>${esc(f.zh)}</span><span class="inline-field"><input type="text" data-mdinfo="${f.key}" value="${esc((val || []).join(', '))}">${pk}</span>${hint}</label>`;
+  }
+  if (f.type === 'scripts') {
+    return `<label class="field wide"><span>${esc(f.zh)}</span><textarea data-mdinfo="${f.key}" rows="4" spellcheck="false">${esc((val || []).join('\n'))}</textarea>${hint}</label>`;
+  }
+  if (f.type === 'number') {
+    return `<label class="field"><span>${esc(f.zh)}</span><input type="text" inputmode="decimal" data-num="1" data-mdinfo="${f.key}" value="${esc(val ?? '')}">${hint}</label>`;
+  }
+  return `<label class="field"><span>${esc(f.zh)}</span><input type="text" data-mdinfo="${f.key}" value="${esc(val ?? '')}">${hint}</label>`;
+}
+
+/* ---------------------------- 挑选器（挑一个 id） ---------------------------- */
+
+function pkRowHtml(it) {
+  const name = esc(it.name || it.nameZh || ('#' + it.id));
+  const zh = it.nameZh && it.nameZh !== it.name ? `<span class="muted">${esc(it.nameZh)}</span>` : '';
+  const meta = [it.id, it.meta, it.source === 'mod' ? 'Mod:' + it.mod : ''].filter(Boolean).map(esc).join(' · ');
+  return `<button class="item" data-act="pk-use" data-id="${esc(it.id)}">
+    <span class="item-name">${name}</span>${zh}
+    <span class="muted">${meta}</span></button>`;
+}
+
+function pkRender() {
+  const list = document.getElementById('pk-list');
+  if (!list) return;
+  const items = S.pick.items || [];
+  list.innerHTML = items.length ? items.map(pkRowHtml).join('') : '<div class="hint muted">没有匹配</div>';
+  const count = document.getElementById('pk-count');
+  if (count) count.textContent = `共 ${S.pick.total || items.length} 条${items.length < (S.pick.total || 0) ? `（显示前 ${items.length} 条）` : ''}`;
+}
+
+async function pkLoad(q) {
+  const kw = q === undefined ? S.pick.q : q;
+  S.pick.q = kw || '';
+  const res = await api(`/api/pick/list?kind=${S.pick.kind}&q=${encodeURIComponent(S.pick.q)}&limit=80`);
+  S.pick.items = res.items || [];
+  S.pick.total = res.total || 0;
+  pkRender();
+}
+
+function openPicker(kind, cb) {
+  S.pick = { kind, cb, q: '', items: [], total: 0 };
+  modal({
+    title: '挑一个' + (PICK_ZH[kind] || kind),
+    body: '<div class="sd-wrap">'
+      + '<div class="sd-bar"><input class="p-search" id="pk-q" placeholder="搜名字 / 中文名 / id，例如 骨斩 或 Iori 或 9001" autocomplete="off"></div>'
+      + '<div class="sd-list" id="pk-list"><div class="muted">载入中…</div></div>'
+      + '<div class="muted" id="pk-count"></div>'
+      + '<div class="hint muted">列表包含游戏原版与已经加载的 Mod；点一条就填进当前字段。</div>'
+      + '</div>',
+    footer: '<button class="btn ghost" data-act="close-modal">关闭</button>',
+  });
+  pkLoad('').catch((err) => toast(err && err.message ? err.message : '读取列表失败', 'error'));
+  setTimeout(() => { const i = document.getElementById('pk-q'); if (i) i.focus(); }, 30);
+}
+
+function renderMdArea(back, kind) {
+  const spec = mdSpec(kind);
+  const q = (S.mdSearch || '').trim().toLowerCase();
+  const rows = (S.mdList || []).filter((r) => !q || String(r.id).includes(q) || String(r.name || '').toLowerCase().includes(q))
+    .map((r) => `<button class="item ${S.mdId === String(r.id) ? 'active' : ''}" data-act="open-md" data-id="${esc(r.id)}" title="${esc(String(r.id) + ' · ' + (r.name || '未命名'))}">
+      <div class="item-main"><strong>${esc(r.name || '未命名')}</strong><small>${esc(r.id)}${r.applied ? ' · 已落地' : ' · 草稿'}</small></div>
+      <span class="state-dot ${r.applied ? 'on' : ''}"></span></button>`).join('');
+  const disabled = S.mods.find((m) => m.name === S.selected)?.enabled === false;
+  return `<div class="pane-head">${back}<div><h2>${esc(spec.zh)}</h2><p class="muted">${esc(S.selected || '')}</p></div></div>`
+    + (disabled ? '<div class="banner red">该 Mod 正在被禁用的状态 · 修改仍会保存到磁盘，但不会在游戏中生效</div>' : '')
+    + '<div class="skill-wrap">'
+    + `<section class="panel"><div class="panel-head">${esc(spec.zh)} <span class="count">${(S.mdList || []).length}</span></div>`
+    + `<div class="panel-search"><input id="md-search" class="search" placeholder="搜索 id / 名称" value="${esc(S.mdSearch || '')}"></div>`
+    + `<div class="panel-body list">${rows || `<div class="list-empty">还没有自定义${esc(spec.zh)}</div>`}</div>`
+    + `<div class="panel-foot two"><button class="btn ghost sm" data-act="new-md">＋ 新建</button><button class="btn ghost sm" data-act="apply-md-all">⇪ 批量落地</button></div></section>`
+    + renderMdMain(spec, kind)
+    + '</div>';
+}
+
+function renderMdMain(spec, kind) {
+  if (!S.md) {
+    return `<section class="panel skill-main"><div class="panel-head">${esc(spec.zh)}</div><div class="panel-body">`
+      + `<div class="empty-state"><div class="empty-mark">${esc(spec.ico || '▦')}</div><p>从左侧选一个${esc(spec.zh)}</p><small class="muted">或新建</small></div></div></section>`;
+  }
+  const ent = S.md.entity || {};
+  const loc = S.md.locale || {};
+  const fields = (spec.fields || []).map((f) => mdFieldHtml(f, ent)).join('');
+  return `<section class="panel skill-main"><div class="panel-head skill-head">`
+    + `<div class="skill-title"><strong>${loc.name ? esc(loc.name) : '<span class="muted">未命名草稿</span>'}</strong><small>${esc(S.mdId)}${S.md.applied ? ' · 已落地' : ' · 仅草稿'}</small></div>`
+    + '<span class="spacer"></span>'
+    + (CLONE_FROM[kind] ? `<button class="btn ghost sm" data-act="md-clone" title="从游戏原版或已加载 Mod 里挑一条载入成新草稿">载入现有${esc(spec.zh)}</button>` : '')
+    + `<button class="btn ghost sm" data-act="delete-md">删除草稿</button>`
+    + (S.md.applied ? `<button class="btn ghost sm" data-act="md-remove-landed">撤掉落地</button>` : '')
+    + `<button class="btn ghost sm" data-act="apply-md">落地到游戏文件</button>`
+    + `<button class="btn primary sm" data-act="save-md">保存</button>`
+    + `<span class="session-state ${S.mdDirty ? 'dirty' : ''}">${S.mdDirty ? '有未保存改动' : '已保存'}</span></div>`
+    + '<div class="skill-body"><div class="info-card"><div class="col-title">基础信息</div><div class="grid-2">'
+    + `<label class="field"><span>名称（EN）<em class="muted">必填，写进 EN 本地化</em></span><input type="text" id="md-name" value="${esc(loc.name || '')}" placeholder="游戏里显示的名字"></label>`
+    + `<label class="field"><span>名称（CN）</span><input type="text" id="md-name-zh" value="${esc(loc.nameZh || '')}" placeholder="留空＝与 EN 相同"></label>`
+    + `<label class="field"><span>id</span><input type="text" value="${esc(S.mdId)}" disabled></label>`
+    + '</div>'
+    + `<label class="field"><span>描述（EN）</span><textarea id="md-desc" rows="3">${esc(loc.desc || '')}</textarea></label>`
+    + `<label class="field"><span>描述（CN）</span><textarea id="md-desc-zh" rows="2" placeholder="留空＝与 EN 相同">${esc(loc.descZh || '')}</textarea></label>`
+    + `<div class="hint muted">${spec.localeCat === null ? '这张表不写 locale：名称/描述只留在编辑器草稿里，游戏里按 id 引用。' : '名称与描述会写进 Mod 的 locale：custom_limbus_locale/EN 与 /CN 各一份（CN 留空则与 EN 相同）。'}</div></div>`
+    + `<div class="editor-card"><div class="col-title">${esc(spec.zh)}字段</div><div class="grid-2">${fields}</div>`
+    + '<div class="hint muted">字段表在服务端 lethe/mdtables.mjs 的 MD_KINDS 里；游戏侧字段名一旦确认，只改那一处即可。</div></div>'
+    + '</div></section>';
+}
+
+
+/* ---------------------------- 镜牢编辑（顶层页） ---------------------------- */
+
+async function enterMdView() {
+  await ensureMdSchemas();
+  S.editKind = null; S.md = null; S.mdId = null; S.mdDirty = false;
+  render();
+}
+
+function renderMdView() {
+  const kinds = S.mdSchemas || [];
+  const kind = S.editKind && MD_UI.includes(S.editKind) ? S.editKind : null;
+  const body = kind
+    ? renderMdArea('<button class="btn ghost sm" data-act="md-back">← 返回</button>', kind)
+    : '<div class="pane-head"><div><h2>镜牢编辑</h2><p class="muted">'
+      + esc(S.selected || '先从左侧选一个 Mod') + ' · 共 ' + kinds.length + ' 类数据</p></div></div>'
+      + '<div class="wiz-grid">' + kinds.map((k) => '<button class="wiz" data-act="md-kind" data-kind="' + esc(k.kind) + '"><span class="wiz-ico">' + esc(k.ico || '▦') + '</span><strong>' + esc(k.zh) + '</strong><small>' + esc(k.sub || '') + '</small></button>').join('') + '</div>';
+  return '<div class="layout edit ' + (S.listCollapsed ? 'list-collapsed' : '') + '">'
+    + '<section class="panel list-panel"><div class="lp-full">'
+    + '<div class="panel-head">MOD 列表 <span class="count">' + S.mods.length + '</span></div>'
+    + '<div class="panel-body list">' + (S.mods.map(modRow).join('') || '<div class="list-empty">mods 目录是空的</div>') + '</div></div>'
+    + '<div class="lp-mini"><div class="panel-body list">' + S.mods.map(modRowMini).join('') + '</div></div></section>'
+    + '<section class="panel edit-pane">' + body + '<div class="dock-mini" id="session-hint"></div></section></div>';
+}
 
 function renderBuffArea(back) {
   const q = (S.buffSearch || '').trim().toLowerCase();
@@ -5087,6 +6050,107 @@ function renderBuffArea(back) {
     + renderBuffMain()
     + renderModulePanel('module-search2', S.moduleSearch2)
     + '</div>';
+}
+
+function buffFieldInput(b, key, label, type, extra) {
+  const fi = b.fileInfo || {};
+  const val = fi[key] == null ? '' : fi[key];
+  return '<label class="field"><span>' + esc(label) + '</span><input type="' + (type || 'number') + '" data-bfield="' + esc(key) + '" value="' + esc(val) + '" ' + (extra || '') + '></label>';
+}
+
+function buffFieldCheck(b, key, label) {
+  const fi = b.fileInfo || {};
+  return '<label class="field check"><input type="checkbox" data-bfield="' + esc(key) + '"' + (fi[key] ? ' checked' : '') + '><span>' + esc(label) + '</span></label>';
+}
+
+function buffFieldList(b, key, label, hint) {
+  const fi = b.fileInfo || {};
+  const arr = Array.isArray(fi[key]) ? fi[key] : [];
+  return '<label class="field"><span>' + esc(label) + '</span><input type="text" data-bfield="' + esc(key) + '" data-bfield-list="1" value="' + esc(arr.join(', ')) + '" placeholder="' + esc(hint || '多个值用英文逗号分隔') + '"></label>';
+}
+
+function buffFileFields(b) {
+  const fi = b.fileInfo || null;
+  if (!fi) return '<div class="hint muted">这个 Buff 在文件里还没有实体字段。</div>';
+  const sins = (S.keywords && S.keywords.sins) || [];
+  const sinOpts = '<option value="">（未设置）</option>' + sins.map((x) => '<option value="' + esc(x.id) + '"' + (String(x.id) === String(fi.attributeType || '') ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('');
+  const sinSel = '<label class="field"><span>罪孽属性</span><select data-bfield="attributeType">' + sinOpts + '</select></label>';
+  return '<div class="grid-2">'
+    + buffFieldCheck(b, 'destroyableOnZero', '销毁条件 · 强度归零')
+    + buffFieldCheck(b, 'destroyableOnZeroTurn', '销毁条件 · 层数归零')
+    + buffFieldCheck(b, 'destroyableOnDie', '销毁条件 · 携带者死亡')
+    + buffFieldCheck(b, 'destroyableOnRetreat', '销毁条件 · 撤退')
+    + buffFieldCheck(b, 'destroyableOnBothZero', '销毁条件 · 两者同时归零')
+    + sinSel
+    + buffFieldInput(b, 'stackLimitPerTurn', '每回合叠加上限', 'number', 'min="0" max="9999"')
+    + buffFieldInput(b, 'totalStack', '总层数上限', 'number', 'min="0" max="9999"')
+    + buffFieldList(b, 'subIdList', '子 Buff（subIdList）', '例如：SubA, SubB')
+    + buffFieldList(b, 'categoryKeywordList', '分类关键词（categoryKeywordList）', '例如：LACERATION, BLEED')
+    + '</div>'
+    + '<div class="meta-row"><span class="muted">脚本条数（list）</span><b>' + String(fi.listCount || 0) + '</b></div>'
+    + '<div class="hint muted">留空写回时会删掉该字段（游戏用默认值）；数字范围 0–9999。</div>';
+}
+
+function buffScriptList(b) {
+  const fromFile = (b && b.fileInfo && Array.isArray(b.fileInfo.listEntries)) ? b.fileInfo.listEntries.slice() : [];
+  const draft = Array.isArray(S.buffScripts) ? S.buffScripts : null;
+  return draft || fromFile;
+}
+
+function buffScriptKind(text) {
+  const t = String(text || '').trim();
+  if (!t) return { zh: '空', cls: 'pr-raw' };
+  if (/TIMING:/.test(t)) return { zh: 'Modular 积木脚本', cls: 'pr-mod' };
+  if (/^[A-Za-z][A-Za-z0-9_]*$/.test(t)) return { zh: '原生脚本名', cls: 'pr-tag' };
+  return { zh: '其它文本', cls: 'pr-raw' };
+}
+
+/** 脚本条目里除 ability 之外的其它 JSON 字段（原样展示、可编辑）。 */
+function bsExtraOf(b, i) {
+  const raw = b && b.fileInfo && Array.isArray(b.fileInfo.listRaw) ? b.fileInfo.listRaw[i] : null;
+  const obj = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  Object.keys(obj).forEach((k) => { if (k !== 'ability') out[k] = obj[k]; });
+  return out;
+}
+
+function bsExtraBlock(b, i) {
+  const fromDraft = Array.isArray(S.buffExtras) && typeof S.buffExtras[i] === 'string' ? S.buffExtras[i] : null;
+  const obj = bsExtraOf(b, i);
+  const text = fromDraft != null ? fromDraft : (Object.keys(obj).length ? JSON.stringify(obj, null, 2) : '{}');
+  const empty = fromDraft == null && !Object.keys(obj).length;
+  return '<details class="bs-extra"' + (fromDraft != null ? ' open' : '') + '><summary>其他字段（JSON）' + (empty ? ' · 无' : '') + '</summary>'
+    + '<textarea class="desc-input bs-json" data-buff-extra="' + i + '" spellcheck="false" rows="4">' + esc(text) + '</textarea>'
+    + '<div class="hint muted">这条脚本在文件里除 ability 以外的字段（例如 value / turnLimit / buffData）。写 {} 表示清空这些字段。</div>'
+    + '</details>';
+}
+
+function renderBuffScriptsEditor(b) {
+  const list = buffScriptList(b);
+  const dirty = Array.isArray(S.buffScripts);
+  const cards = list.map((raw, i) => {
+    const k = buffScriptKind(raw);
+    const lines = String(raw || '').split('\n').length;
+    return '<div class="pr-card">'
+      + '<div class="pr-head"><span class="pr-hat">脚本 ' + (i + 1) + '</span>'
+      + '<span class="pr-tag ' + k.cls + '">' + esc(k.zh) + '</span>'
+      + (String(raw || '').length ? '<span class="pr-tag">' + String(raw || '').length + ' 字符</span>' : '')
+      + '<button class="btn ghost sm" data-act="buff-script-del" data-i="' + i + '">删除</button></div>'
+      + '<textarea class="desc-input bs-text" data-buff-script="' + i + '" spellcheck="false" rows="' + Math.max(2, Math.min(10, lines + 1)) + '" placeholder="留空表示删除这条脚本">' + esc(String(raw || '')) + '</textarea>'
+      + bsExtraBlock(b, i)
+      + '</div>';
+  }).join('');
+  const empty = list.length ? '' : '<div class="muted" style="padding:8px 2px">这个 Buff 在文件里还没有脚本；可以新建一条，或从右侧模块拖入后保存生成。</div>';
+  return '<div class="editor-card" style="margin-top:10px">'
+    + '<div class="col-title">脚本（可编辑）<span class="muted"> · ' + list.length + ' 条' + (dirty ? ' · 有未保存的脚本改动' : '') + '</span></div>'
+    + '<div class="hint muted">这里直接读写 Buff 实体里的 <code>list[].ability</code>：Modular 积木脚本会解析成上面的卡片；原生脚本名（如 <code>MinSpeedAdder</code>）是游戏内置效果，可改名但不能在这里展开。</div>'
+    + empty
+    + '<div class="bs-list">' + cards + '</div>'
+    + '<div class="row-actions" style="display:flex;gap:8px;margin-top:8px">'
+    + '<button class="btn ghost sm" data-act="buff-script-add">＋ 新增一条</button>'
+    + '<button class="btn primary sm" data-act="buff-script-save"' + (dirty ? '' : ' disabled') + '>保存脚本</button>'
+    + '<button class="btn ghost sm" data-act="buff-script-reset"' + (dirty ? '' : ' disabled') + '>还原</button>'
+    + '</div></div>';
 }
 
 function renderBuffMain() {
@@ -5113,16 +6177,112 @@ function renderBuffMain() {
     + sel('Buff 种类', 'buffClass', classes) + sel('正负 Buff', 'buffType', types)
     + field('最大强度', 'maxStack') + field('最大层数', 'maxTurn', 'number')
     + field('Buff 图像', 'iconId', 'text') + field('所属', 'special', 'text')
-    + '</div><label class="field check"><input type="checkbox" data-binfo="canBeDespelled"' + (info.canBeDespelled !== false ? ' checked' : '') + '><span>可被净化</span></label>'
-    + '<div class="hint muted">「所属」留空表示普通 Buff；填关键词表示该 Buff 的特殊归属。</div></div>'
+    + '</div>'
+    + '<label class="field check"><input type="checkbox" data-binfo="canBeDespelled"' + (info.canBeDespelled !== false ? ' checked' : '') + '><span>可被净化</span></label>'
+    + '<div class="hint muted">「所属」留空表示普通 Buff；填关键词表示该 Buff 的特殊归属。</div>'
+    + '<div class="col-title" style="margin-top:14px">文件字段 <span class="muted">（改动即时写盘）</span></div>'
+    + buffFileFields(b)
+    + '</div>'
     + '<div class="editor-card"><div class="tabs">'
     + '<button class="tab ' + (S.buffTab === 'code' ? 'active' : '') + '" data-act="buff-tab" data-tab="code">代码</button>'
     + '<button class="tab ' + (S.buffTab === 'desc' ? 'active' : '') + '" data-act="buff-tab" data-tab="desc">描述</button></div>'
-    + (S.buffTab === 'desc' ? renderSimpleDesc('buff', b) : renderSimpleCode('buff', b))
+    + (S.buffTab === 'desc' ? renderSimpleDesc('buff', b) : (renderSimpleCode('buff', b) + renderBuffScriptsEditor(b)))
     + '</div></div></section>';
 }
 
 /* --------------------------- 被动 / Buff 共用块 --------------------------- */
+
+
+/* -------------------- 被动：识别文件里已有的模块脚本 -------------------- */
+const P_TARGET_ZH_LITE = {
+  Self: '自身', Target: '目标', MainTarget: '主目标', SubTarget: '副目标', Victim: '被击倒者', Killer: '击杀者',
+  EveryAlly: '所有友方', EveryEnemy: '所有敌方', EveryTarget: '所有目标', All: '全体', RandomAlly: '随机友方',
+  RandomEnemy: '随机敌方', AllyExceptSelf: '除自身外友方', EnemyExceptSelf: '除自身外敌方', ExceptSelf: '除自身',
+  ExceptTarget: '除目标', SelfCore: '自身本体', SelfParts: '自身部位', TargetCore: '目标本体', TargetParts: '目标部位',
+};
+
+function pTargetLabel(n) {
+  const raw = String(n || '');
+  const base = raw.replace(/\$[A-Za-z0-9_]+$/, '');
+  const kw = raw.slice(base.length);
+  const zh = P_TARGET_ZH_LITE[base];
+  return (zh ? zh + (base !== 'Self' && base !== 'Target' ? '（' + base + '）' : '') : base)
+    + (kw ? ' · ' + kw.slice(1) : '');
+}
+
+function pValueLabel(v) {
+  if (!v) return '<空>';
+  if (v.t === 'target') return pTargetLabel(v.n) + (v.c === null || v.c === undefined ? '' : ' × ' + v.c);
+  if (v.t === 'var') return String(v.n);
+  if (v.t === 'n') return String(v.v);
+  if (v.t === 's') return String(v.v);
+  if (v.t === 'math') {
+    const head = pValueLabel(v.first);
+    return 'math(' + head + (v.tail || []).map((t) => ' ' + t.op + ' ' + pValueLabel(t.val)).join('') + ')';
+  }
+  if (v.t === 'acq') {
+    const args = (v.a || []).filter(Boolean).map(pValueLabel);
+    return v.n + '(' + args.join(', ') + ')';
+  }
+  return '?';
+}
+
+function pCondLabel(b) {
+  const logic = b.logic && b.logic !== 'none' ? b.logic.toUpperCase() + ' ' : '';
+  const list = (b.conds || []).map((c) => pValueLabel(c.left) + ' ' + (c.op || '>') + ' ' + pValueLabel(c.right));
+  return logic + list.join('，');
+}
+
+function pStmtLabel(b) {
+  if (!b) return '';
+  if (b.k === 'cons') return b.n + '(' + (b.a || []).map((x) => pValueLabel(x)).join(', ') + ')';
+  if (b.k === 'assign') return b.var + ' ← ' + pValueLabel(b.val);
+  if (b.k === 'if') return '如果 ' + pCondLabel(b);
+  if (b.k === 'ifnot') return '如果不 ' + pCondLabel(b);
+  if (b.k === 'continueif') return '否则跳过（' + pCondLabel(b) + '）';
+  if (b.k === 'raw') return b.text;
+  return '';
+}
+
+function pParsedTree(list, depth) {
+  const d = depth || 0;
+  return (list || []).map((b) => '<div class="pr-line" style="padding-left:' + (d * 16) + 'px">'
+    + '<span class="pr-dot"></span>' + esc(pStmtLabel(b)) + '</div>'
+    + (Array.isArray(b.body) && b.body.length ? pParsedTree(b.body, d + 1) : '')).join('');
+}
+
+function pTimingLabel(en) {
+  const list = (S.keywords && S.keywords.timings) || [];
+  const hit = list.find((x) => String(x.en) === String(en));
+  return hit && hit.zh ? hit.zh + ' · ' + en : String(en || '');
+}
+
+function renderPassiveScripts(p) {
+  const parsed = p.parsed || { rows: [] };
+  const rows = parsed.rows || [];
+  if (!rows.length) { return ''; }
+  const matched = p.matchedModules || [];
+  const modName = (mid) => {
+    const m = (S.modules || []).find((x) => x.id === mid);
+    return m ? (m.name || mid) : mid;
+  };
+  const cards = rows.map((r, i) => {
+    const mod = matched[i] ? modName(matched[i]) : '';
+    return '<div class="pr-card">'
+      + '<div class="pr-head">'
+      + '<span class="pr-hat">' + (r.timing ? '⚑ ' + esc(pTimingLabel(r.timing)) : '未识别时点') + '</span>'
+      + (r.loop ? '<span class="pr-tag">遍历 ' + esc(pTargetLabel(r.loop.n)) + (r.loop.c ? ' × ' + r.loop.c : '') + '</span>' : '')
+      + '<span class="pr-tag">' + (r.blockCount || 0) + ' 个块</span>'
+      + (mod ? '<span class="pr-tag pr-mod">模块：' + esc(mod) + '</span>' : '<span class="pr-tag pr-raw">外部脚本</span>')
+      + '</div>'
+      + (mod ? '' : '<div class="pr-tree">' + pParsedTree(r.stmts, 0) + '</div>')
+      + '<details class="pr-code"><summary>脚本原文</summary><pre>' + esc(r.code) + '</pre></details>'
+      + '</div>';
+  }).join('');
+  return '<div class="pr-wrap"><div class="col-title">已识别的脚本 <span class="muted">（' + rows.length + ' 条，来自被动文件 requireIDList）</span></div>'
+    + '<div class="hint muted">这里只做识别：改脚本请用上方的模块置入区或到模块编辑里改模块。</div>'
+    + cards + '</div>';
+}
 
 function renderSimpleCode(kind, doc) {
   const code = doc.code || { modules: [] };
@@ -5130,14 +6290,20 @@ function renderSimpleCode(kind, doc) {
   return '<div class="code-wrap code-simple"><div class="code-col"><div class="col-title">' + (kind === 'passive' ? '被动' : 'Buff') + '置入区</div>'
     + '<div class="drop-zone ' + kind + '-zone" data-drop="' + kind + '">'
     + (chips || '<span class="dz-hint">把右侧模块拖到这里</span>') + '</div></div>'
-    + '<div class="hint muted">从右侧模块列表拖入；这里只记录排布，尚未落到游戏脚本（映射留待后续版本）。</div></div>';
+    + '<div class="hint muted">从右侧模块列表拖入；这里只记录排布，尚未落到游戏脚本（映射留待后续版本）。</div>'
+    + renderPassiveScripts(doc) + '</div>';
 }
 
 function renderSimpleDesc(kind, doc) {
   const id = kind === 'passive' ? 'passive-desc' : 'buff-desc';
   const text = typeof doc.description === 'string' ? doc.description : '';
   const st = kind === 'passive' ? (S.pDescCheck || { tokens: [], unknown: [] }) : (S.bDescCheck || { tokens: [], unknown: [] });
+  const fromFile = Boolean(doc) && doc.descriptionSource === 'locale';
+  const fromVanilla = Boolean(doc) && doc.descriptionSource === 'vanilla';
+  const fileWord = kind === 'passive' ? '被动' : 'Buff';
   return '<div class="desc-wrap"><div class="desc-block"><div class="desc-block-head"><strong>描述</strong><span class="muted">用 [关键词] 书写，保存时转游戏格式</span></div>'
+    + (fromFile ? '<div class="banner soft">这份描述是从' + fileWord + '文件里的游戏写法还原出来的（[英文id] → 中文名）；保存后会再转回英文写进 locale。</div>' : '')
++ (fromVanilla ? '<div class="banner soft">本 Mod 没有写这份' + fileWord + '的描述，下面是从游戏原版文案还原的（[英文id] → 中文名）；修改并保存后会写进本 Mod 的 locale，形成覆盖。</div>' : '')
     + '<textarea id="' + id + '" class="desc-input" spellcheck="false" rows="10" placeholder="例如：[回合开始时]获得1层[烧伤]">' + esc(text) + '</textarea>'
     + '<div class="desc-preview" id="' + id + '-preview">' + highlightText(text, st.tokens || []) + '</div>'
     + '<div class="desc-check ' + ((st.unknown || []).length ? 'bad' : 'ok') + '" id="' + id + '-check">'
@@ -5153,6 +6319,36 @@ let bInfoTimer = null;
 function schedulePDesc() { clearTimeout(pDescTimer); pDescTimer = setTimeout(() => flushPDesc().catch((e) => toast(e.message, 'error')), 700); }
 function scheduleBDesc() { clearTimeout(bDescTimer); bDescTimer = setTimeout(() => flushBDesc().catch((e) => toast(e.message, 'error')), 700); }
 function schedulePInfo() { clearTimeout(pInfoTimer); pInfoTimer = setTimeout(() => flushPInfo().catch((e) => toast(e.message, 'error')), 400); }
+let bFieldTimer = null;
+function scheduleBuffFields() {
+  clearTimeout(bFieldTimer);
+  bFieldTimer = setTimeout(() => flushBuffFields().catch((e) => toast(e.message, 'error')), 500);
+}
+
+function readBuffFields() {
+  const out = {};
+  document.querySelectorAll('[data-bfield]').forEach((el) => {
+    const key = el.dataset.bfield;
+    if (!key) return;
+    if (el.type === 'checkbox') out[key] = el.checked;
+    else if (el.dataset.bfieldList === '1') out[key] = String(el.value || '').split(',').map((x) => x.trim()).filter(Boolean);
+    else if (el.type === 'number') out[key] = el.value === '' ? null : Number(el.value);
+    else out[key] = el.value;
+  });
+  return out;
+}
+
+async function flushBuffFields() {
+  if (!S.buff) return;
+  const fields = readBuffFields();
+  if (!Object.keys(fields).length) return;
+  const res = await api('/api/buff/fields', { method: 'POST', body: { name: S.selected, id: S.buffId, fields } });
+  if (res && res.session) { S.session = res.session; pSessionDom(); }
+  if (res && res.changed) {
+    await reloadBuff();
+  }
+}
+
 function scheduleBInfo() { clearTimeout(bInfoTimer); bInfoTimer = setTimeout(() => flushBInfo().catch((e) => toast(e.message, 'error')), 400); }
 
 async function checkPDesc() {
@@ -5165,14 +6361,7 @@ async function checkBDesc() {
 }
 
 async function flushPDesc() {
-  if (!S.passive) return;
-  const ta = document.getElementById('passive-desc');
-  if (!ta || ta.value === (S.passive.description || '')) return;
-  const res = await api('/api/passive/meta', { method: 'POST', body: { name: S.selected, id: S.passiveId, description: ta.value } });
-  S.passive = { ...S.passive, description: ta.value };
-  S.session = res.session;
-  await checkPDesc();
-  render();
+  await flushPInfo();
 }
 
 async function flushBDesc() {
@@ -5188,12 +6377,25 @@ async function flushBDesc() {
 
 function readPInfo() {
   const info = { ...(S.passive?.info || {}) };
-  document.querySelectorAll('[data-pinfo]').forEach((el) => {
-    const k = el.dataset.pinfo;
-    if (el.type === 'checkbox') info[k] = el.checked;
-    else if (el.type === 'number') info[k] = Number(el.value) || 0;
-    else info[k] = el.value;
-  });
+  const modeEl = document.querySelector('.seg.active[data-p-mode]');
+  info.conditionMode = modeEl ? String(modeEl.dataset.pMode) : (info.conditionMode || 'none');
+  const collect = (which) => {
+    const rows = Array.from(document.querySelectorAll('[data-pcond="' + which + '"]'));
+    const seen = new Set();
+    const out = [];
+    for (const sel of rows) {
+      const i = sel.dataset.idx;
+      const type = String(sel.value || 'CRIMSON');
+      const valEl = document.querySelector('[data-pcond-val="' + which + '"][data-idx="' + i + '"]');
+      const value = Math.max(1, Math.min(99, Number(valEl && valEl.value) || 1));
+      if (seen.has(type)) continue;
+      seen.add(type);
+      out.push({ type, value });
+    }
+    return out;
+  };
+  info.stockConditions = info.conditionMode === 'stock' ? collect('stock') : [];
+  info.resonanceConditions = info.conditionMode === 'resonance' ? collect('resonance').slice(0, 1) : [];
   return info;
 }
 
@@ -5208,13 +6410,37 @@ function readBInfo() {
   return info;
 }
 
+function pSessionDom() {
+  const el = document.getElementById('session-state');
+  if (el) {
+    const dirty = Boolean(S.session && S.session.dirty);
+    el.className = 'session-state' + (dirty ? ' dirty' : '');
+    el.textContent = dirty ? '有未保存改动' : '已保存';
+  }
+}
+
 async function flushPInfo() {
   if (!S.passive) return;
   const info = readPInfo();
-  const res = await api('/api/passive/meta', { method: 'POST', body: { name: S.selected, id: S.passiveId, info } });
-  S.passive = { ...S.passive, info: res.meta.info };
+  const nameEl = document.getElementById('p-name');
+  const descEl = document.getElementById('p-desc');
+  const displayName = nameEl ? nameEl.value : (S.passive.localeName || S.passive.name || '');
+  const description = descEl ? descEl.value : (S.passive.description || '');
+  const res = await api('/api/passive/state', {
+    method: 'POST',
+    body: { name: S.selected, id: S.passiveId, info, displayName, description },
+  });
+  S.passive = {
+    ...S.passive,
+    info,
+    name: displayName,
+    localeName: displayName,
+    description,
+    conditions: res.passive.conditions,
+  };
   S.session = res.session;
-  render();
+  await checkPDesc();
+  pSessionDom();
 }
 
 async function flushBInfo() {
@@ -5369,8 +6595,8 @@ function openNewPassive() {
     title: '新建被动',
     body: '<div class="form">'
       + '<label class="field"><span>被动 id（必填，4–10 位数字，编辑器会查重）</span><input id="np-id" placeholder="例如 2090111" autocomplete="off"></label>'
-      + '<label class="field"><span>被动名</span><input id="np-name" placeholder="例如 灼热抗性" autocomplete="off"></label>'
-      + '<label class="field"><span>描述</span><textarea id="np-desc" class="desc-input" rows="3" placeholder="例如：[回合开始时]获得1层[烧伤]"></textarea></label>'
+      + '<label class="field"><span>被动名（写入游戏本地化）</span><input id="np-name" placeholder="例如 灼热抗性" autocomplete="off"></label>'
+      + '<div class="hint muted">描述与启动条件在打开被动后，于中间的「描述」页与「被动基础信息」里填。</div>'
       + '</div>',
     footer: '<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="submit-create-passive">创建</button>',
   });
@@ -5379,9 +6605,8 @@ function openNewPassive() {
 async function submitCreatePassive() {
   const id = document.getElementById('np-id')?.value?.trim() || '';
   const displayName = document.getElementById('np-name')?.value?.trim() || '';
-  const desc = document.getElementById('np-desc')?.value || '';
   try {
-    const res = await api('/api/passive/create', { method: 'POST', body: { name: S.selected, id, displayName, desc } });
+    const res = await api('/api/passive/create', { method: 'POST', body: { name: S.selected, id, displayName } });
     closeModal();
     await loadPassiveList(S.selected);
     S.passive = null;
@@ -5508,6 +6733,96 @@ Object.assign(actions, {
 
   'open-passive': (el) => openPassive(el.dataset.id).catch((e) => toast(e.message, 'error')),
   'passive-tab': (el) => { S.passiveTab = el.dataset.tab; render(); },
+  'buff-script-add': () => {
+    if (!S.buff) return;
+    const list = buffScriptList(S.buff).slice();
+    list.push('');
+    S.buffScripts = list;
+    render();
+  },
+  'buff-script-del': (el) => {
+    if (!S.buff) return;
+    const i = Number(el.dataset.i);
+    const list = buffScriptList(S.buff).slice();
+    if (!Number.isInteger(i) || i < 0 || i >= list.length) return;
+    list.splice(i, 1);
+    S.buffScripts = list;
+    render();
+  },
+  'buff-script-reset': () => {
+    S.buffScripts = null;
+    render();
+  },
+  'buff-script-save': async () => {
+    if (!S.buff) return;
+    const abs = buffScriptList(S.buff);
+    const extras = Array.isArray(S.buffExtras) ? S.buffExtras : [];
+    const list = [];
+    for (let i = 0; i < abs.length; i += 1) {
+      const ability = String(abs[i] || '');
+      let extra = null;
+      const draft = typeof extras[i] === 'string' ? extras[i] : null;
+      if (draft != null) {
+        const trimmed = draft.trim();
+        if (trimmed && trimmed !== '{}') {
+          try {
+            const obj = JSON.parse(trimmed);
+            if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw new Error('not object');
+            extra = obj;
+          } catch { toast('第 ' + (i + 1) + ' 条脚本的「其他字段」不是合法 JSON 对象', 'error'); return; }
+        } else if (trimmed === '{}') {
+          const keys = Object.keys(bsExtraOf(S.buff, i));
+          if (keys.length) { extra = {}; keys.forEach((k) => { extra[k] = null; }); }
+        }
+      }
+      list.push(extra ? { ability, extra } : ability);
+    }
+    const res = await api('/api/buff/scripts', { method: 'POST', body: { name: S.selected, id: S.buffId, list } });
+    S.buffScripts = null;
+    S.buffExtras = null;
+    await reloadBuff();
+    toast('已写回 ' + res.count + ' 条脚本');
+    render();
+  },
+  'p-mode': async (el) => {
+    if (!S.passive) return;
+    const mode = String(el.dataset.pMode || 'none');
+    const info = { ...(S.passive.info || {}), conditionMode: mode };
+    if (mode === 'stock' && !(info.stockConditions || []).length) info.stockConditions = [{ type: 'CRIMSON', value: 1 }];
+    if (mode === 'resonance' && !(info.resonanceConditions || []).length) info.resonanceConditions = [{ type: 'CRIMSON', value: 1 }];
+    info.stockConditions = Array.isArray(info.stockConditions) ? info.stockConditions : [];
+    info.resonanceConditions = Array.isArray(info.resonanceConditions) ? info.resonanceConditions : [];
+    S.passive = { ...S.passive, info };
+    render();
+    await flushPInfo().catch((e) => toast(e.message, 'error'));
+  },
+  'p-cond-add': (el) => {
+    if (!S.passive) return;
+    const which = el.dataset.which === 'resonance' ? 'resonance' : 'stock';
+    const info = { ...(S.passive.info || {}) };
+    const key = which === 'stock' ? 'stockConditions' : 'resonanceConditions';
+    const list = Array.isArray(info[key]) ? info[key].slice() : [];
+    if (which === 'resonance' && list.length >= 1) { toast('资源共鸣只支持 1 条条件', 'warn'); return; }
+    const used = new Set(list.map((c) => c.type));
+    const sins = ['CRIMSON', 'SCARLET', 'AMBER', 'SHAMROCK', 'AZURE', 'INDIGO', 'VIOLET', 'WHITE', 'BLACK'];
+    list.push({ type: sins.find((x) => !used.has(x)) || 'CRIMSON', value: 1 });
+    info[key] = list;
+    S.passive = { ...S.passive, info };
+    render();
+    flushPInfo().catch((e) => toast(e.message, 'error'));
+  },
+  'p-cond-del': async (el) => {
+    if (!S.passive) return;
+    const which = el.dataset.which === 'resonance' ? 'resonance' : 'stock';
+    const key = which === 'stock' ? 'stockConditions' : 'resonanceConditions';
+    const info = { ...(S.passive.info || {}) };
+    const list = Array.isArray(info[key]) ? info[key].slice() : [];
+    list.splice(Number(el.dataset.idx) || 0, 1);
+    info[key] = list;
+    S.passive = { ...S.passive, info };
+    render();
+    await flushPInfo().catch((e) => toast(e.message, 'error'));
+  },
   'new-passive': () => openNewPassive(),
   'submit-create-passive': () => submitCreatePassive(),
   'save-passive': () => savePassiveCurrent().catch((e) => toast(e.message, 'error')),

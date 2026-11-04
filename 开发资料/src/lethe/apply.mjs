@@ -66,6 +66,60 @@ function normalizeCoinColor(value) {
  * 技能落地：模块 → skillData[0].abilityScriptList 与每枚 coinList[i].abilityScriptList，
  * 外加 basePower/atkCorrection/targetNum/physical/sin/硬币数量/正负硬币，以及描述与硬币描述。
  */
+/** 只写技能基础信息（威力/修正值/容量/物理/罪孽/硬币数量/正负硬币），不碰脚本 */
+export function saveSkillFields(letheRoot, { name, id, info = {} } = {}) {
+  const mod = String(name || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const payload = readModPayload(dir);
+  const found = findEntity(payload, 'skill', id);
+  if (!found) throw new SafetyError('在 Mod 里找不到技能 ' + id);
+  const { doc, ent } = loadEntityDoc(dir, found);
+  ent.skillData = Array.isArray(ent.skillData) && ent.skillData.length ? ent.skillData : [{}];
+  const sd = ent.skillData[0] || (ent.skillData[0] = {});
+
+  if (info.basePower != null && info.basePower !== '') sd.defaultValue = Number(info.basePower);
+  if (info.atkCorrection != null && info.atkCorrection !== '') sd.skillLevelCorrection = Number(info.atkCorrection);
+  if (info.targetNum != null && info.targetNum !== '') sd.targetNum = Number(info.targetNum);
+  if (info.physical) sd.atkType = String(info.physical);
+  if (info.sin) sd.attributeType = String(info.sin);
+
+  const op = String(info.sign) === 'negative' ? 'SUB' : 'ADD';
+  const n = Number(info.coinCount);
+  if (Number.isFinite(n) && n >= 1 && n <= 12) {
+    sd.coinList = Array.isArray(sd.coinList) ? sd.coinList : [];
+    if (n < sd.coinList.length) {
+      const dropped = sd.coinList.slice(n).reduce((acc, c) => acc + (((c || {}).abilityScriptList || []).length), 0);
+      if (dropped > 0) {
+        throw new SafetyError('把硬币数量减到 ' + n + ' 会丢掉第 ' + (n + 1) + '–' + sd.coinList.length + ' 枚硬币上的 ' + dropped + ' 条脚本；请先清空这些硬币的脚本，或保持硬币数量不变');
+      }
+    }
+    while (sd.coinList.length < n) {
+      sd.coinList.push({ operatorType: op, color: 'GREY', scale: 3, prob: 0.5, abilityScriptList: [] });
+    }
+    if (sd.coinList.length > n) sd.coinList = sd.coinList.slice(0, n);
+  }
+  if (Array.isArray(sd.coinList)) {
+    sd.coinList.forEach((c) => { if (c && typeof c === 'object') c.operatorType = op; });
+  }
+
+  const result = writeFilesTransactional({
+    modDir: dir,
+    files: [{ rel: found.rel, content: JSON.stringify(doc, null, 2) + '\n' }],
+    root: letheRoot,
+    mod,
+  });
+  writeSkillMeta(letheRoot, mod, String(id), { info });
+  return { changes: result.changes, entity: ent, info: {
+    basePower: Number(sd.defaultValue) || 0,
+    coinCount: (sd.coinList || []).length,
+    atkCorrection: Number(sd.skillLevelCorrection) || 0,
+    targetNum: Number(sd.targetNum) || 1,
+    physical: String(sd.atkType || ''),
+    sin: String(sd.attributeType || ''),
+    sign: op === 'SUB' ? 'negative' : 'positive',
+  } };
+}
+
 export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displayName, tier, scripts, code, description, coinDescs } = {}) {
   const mod = String(name || '');
   const dir = modDirSafe(letheRoot, mod);
@@ -177,12 +231,29 @@ export function saveCompiledPassive(letheRoot, { name, id, info = {}, displayNam
 
   ent.attributeStockCondition = [];
   ent.attributeResonanceCondition = [];
-  const cType = info.conditionType;
-  const sin = info.sin || 'CRIMSON';
-  const value = Math.max(1, Number(info.count) || 1);
-  if (info.needCondition) {
-    if (cType === 'resonance') ent.attributeResonanceCondition = [{ type: sin, value }];
-    else ent.attributeStockCondition = [{ type: sin, value }];
+  {
+    const sinIds = new Set(['CRIMSON', 'SCARLET', 'AMBER', 'SHAMROCK', 'AZURE', 'INDIGO', 'VIOLET', 'WHITE', 'BLACK']);
+    const mode = info.conditionMode === 'stock' || info.conditionMode === 'resonance'
+      ? info.conditionMode
+      : (info.needCondition ? (info.conditionType === 'resonance' ? 'resonance' : 'stock') : 'none');
+    const fallback = info.sin || info.count
+      ? [{ type: String(info.sin || 'CRIMSON'), value: Math.max(1, Number(info.count) || 1) }]
+      : [];
+    const pick = (list) => {
+      const arr = Array.isArray(list) && list.length ? list : fallback;
+      const seen = new Set();
+      const out = [];
+      for (const c of arr) {
+        if (!c || typeof c !== 'object') continue;
+        const type = String(c.type || '');
+        if (!sinIds.has(type) || seen.has(type)) continue;
+        seen.add(type);
+        out.push({ type, value: Math.max(1, Math.min(99, Number(c.value) || 1)) });
+      }
+      return out;
+    };
+    if (mode === 'stock') ent.attributeStockCondition = pick(info.stockConditions);
+    else if (mode === 'resonance') ent.attributeResonanceCondition = pick(info.resonanceConditions).slice(0, 1);
   }
 
   const refIds = (code && code.modules) || [];
@@ -214,6 +285,43 @@ export function saveCompiledPassive(letheRoot, { name, id, info = {}, displayNam
 }
 
 /** Buff 落地：类别/正负/最大强度/最大层数/图标 + list[{ability}] + 描述 */
+/**
+ * 写回 Buff 的脚本表（list[].ability）。
+ * @param {string[]} list 按顺序排列的脚本文本；空字符串表示删除该条
+ */
+export function saveBuffScripts(letheRoot, { name, id, list } = {}) {
+  const mod = String(name || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const payload = readModPayload(dir);
+  const found = findEntity(payload, 'buff', id);
+  if (!found) throw new SafetyError('这个 Mod 里找不到 Buff ' + id);
+  const { doc, ent } = loadEntityDoc(dir, found);
+  const old = Array.isArray(ent.list) ? ent.list : [];
+  const next = [];
+  (Array.isArray(list) ? list : []).forEach((raw, i) => {
+    const item = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : { ability: raw };
+    const text = String(item.ability == null ? '' : item.ability);
+    if (!text.trim()) return;
+    if (text.length > 20000) throw new SafetyError('第 ' + (i + 1) + ' 条脚本太长（上限 20000 字符）');
+    const prev = old[i] && typeof old[i] === 'object' ? old[i] : {};
+    const merged = Object.assign({}, prev, { ability: text });
+    if (item.extra && typeof item.extra === 'object' && !Array.isArray(item.extra)) {
+      Object.keys(item.extra).forEach((k) => {
+        const key = String(k);
+        if (!key || key === 'ability') return;
+        const v = item.extra[k];
+        if (v === null || v === undefined) delete merged[key];
+        else merged[key] = v;
+      });
+    }
+    next.push(merged);
+  });
+  ent.list = next;
+  const result = writeBack(letheRoot, dir, mod, [{ rel: found.rel, content: JSON.stringify(doc, null, 2) }]);
+  writeBuffMeta(letheRoot, mod, String(id), { touch: true });
+  return { id: String(id), count: next.length, ...result };
+}
+
 export function saveCompiledBuff(letheRoot, { name, id, info = {}, displayName, code, description } = {}) {
   const mod = String(name || '');
   const dir = modDirSafe(letheRoot, mod);
@@ -234,7 +342,12 @@ export function saveCompiledBuff(letheRoot, { name, id, info = {}, displayName, 
   if (!lines.length && missing.length) {
     throw new SafetyError('这些模块已经不存在：' + missing.join('、') + '（为避免把 Buff 脚本清空，本次没有写入）');
   }
-  ent.list = lines.map((ability) => ({ ability }));
+  if (lines.length) {
+    // 只替换「积木模块生成的那部分脚本」，保留文件里原有、且在编辑器内不可由模块表达的条目（原生脚本名等）
+    const oldList = Array.isArray(ent.list) ? ent.list : [];
+    const plain = oldList.filter((x) => !/(^|\/)TIMING:/.test(String((x && x.ability) || '')));
+    ent.list = plain.concat(lines.map((ability) => ({ ability })));
+  }
 
   const files = [{ rel: found.rel, content: JSON.stringify(doc, null, 2) }];
   const tables = keywordTables(letheRoot);
@@ -255,4 +368,123 @@ export function saveCompiledBuff(letheRoot, { name, id, info = {}, displayName, 
   const result = writeBack(letheRoot, dir, mod, files);
   writeBuffMeta(letheRoot, mod, bid, { touch: true });
   return { id: bid, scripts: lines.length, missing, ...result };
+}
+
+/**
+ * 被动字段落盘（不写脚本）：条件三态互斥 + 名字/描述写 locale + 编辑器 meta 留一份可读原文。
+ * 名字进 locale.name；描述进 locale.desc（关键词转游戏写法），编辑器 meta.description 存原文用于回显。
+ */
+export function savePassiveFields(letheRoot, { name, id, info = {}, displayName, description } = {}) {
+  const mod = String(name || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const payload = readModPayload(dir);
+  const found = findEntity(payload, 'passive', id);
+  const { doc, ent } = loadEntityDoc(dir, found);
+  const pid = String(id);
+  const sinIds = new Set(['CRIMSON', 'SCARLET', 'AMBER', 'SHAMROCK', 'AZURE', 'INDIGO', 'VIOLET', 'WHITE', 'BLACK']);
+  const pick = (list) => {
+    const seen = new Set();
+    const out = [];
+    for (const c of (Array.isArray(list) ? list : [])) {
+      if (!c || typeof c !== 'object') continue;
+      const type = String(c.type || '');
+      if (!sinIds.has(type) || seen.has(type)) continue;
+      seen.add(type);
+      out.push({ type, value: Math.max(1, Math.min(99, Number(c.value) || 1)) });
+    }
+    return out;
+  };
+  const mode = info.conditionMode === 'stock' || info.conditionMode === 'resonance' ? info.conditionMode : 'none';
+  ent.attributeStockCondition = mode === 'stock' ? pick(info.stockConditions) : [];
+  ent.attributeResonanceCondition = mode === 'resonance' ? pick(info.resonanceConditions).slice(0, 1) : [];
+  if (!Array.isArray(ent.requireIDList)) ent.requireIDList = [];
+
+  const files = [{ rel: found.rel, content: JSON.stringify(doc, null, 2) }];
+  const tables = keywordTables(letheRoot);
+  const locFound = ((payload.locales.EN && payload.locales.EN.passive) || []).find((x) => String(x.key) === pid);
+  if (locFound) {
+    const locDoc = readJson(join(dir, locFound.rel), null);
+    if (locDoc) {
+      let entry = Array.isArray(locDoc.list) ? locDoc.list.find((e) => String(e.id) === pid) : locDoc[pid];
+      if (!entry) {
+        entry = { id: pid, name: displayName || pid, desc: '', summary: '', flavor: '' };
+        if (Array.isArray(locDoc.list)) locDoc.list.push(entry);
+        else locDoc[pid] = entry;
+      }
+      if (displayName !== undefined) entry.name = String(displayName || pid);
+      if (description !== undefined) entry.desc = toGameText(String(description || ''), tables);
+      if (typeof entry.summary !== 'string') entry.summary = '';
+      if (typeof entry.flavor !== 'string') entry.flavor = '';
+      files.push({ rel: locFound.rel, content: JSON.stringify(locDoc, null, 2) });
+    }
+  }
+
+  const result = writeBack(letheRoot, dir, mod, files);
+  const change = writePassiveMeta(letheRoot, mod, pid, {
+    info: { conditionMode: mode, stockConditions: ent.attributeStockCondition, resonanceConditions: ent.attributeResonanceCondition },
+    description,
+  });
+  return { id: pid, entity: ent, locale: locFound ? true : false, ...result, change };
+}
+
+const BUFF_BOOL_FIELDS = [
+  'destroyableOnZero',
+  'destroyableOnZeroTurn',
+  'destroyableOnDie',
+  'destroyableOnRetreat',
+  'destroyableOnBothZero',
+];
+const BUFF_NUM_FIELDS = ['stackLimitPerTurn', 'totalStack'];
+const BUFF_LIST_FIELDS = ['subIdList', 'categoryKeywordList'];
+
+/** 写 Buff 实体上的「其他字段」（销毁条件、上限、罪孽属性、子 Buff、分类关键词）。 */
+export function saveBuffFields(letheRoot, { name, id, fields = {} } = {}) {
+  const mod = String(name || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const payload = readModPayload(dir);
+  const found = findEntity(payload, 'buff', id);
+  if (!found) throw new SafetyError('这个 Mod 里找不到 Buff ' + id);
+  const { doc, ent } = loadEntityDoc(dir, found);
+  const touched = [];
+  for (const k of BUFF_BOOL_FIELDS) {
+    if (!(k in fields)) continue;
+    const v = Boolean(fields[k]);
+    if (ent[k] !== v) { ent[k] = v; touched.push(k); }
+  }
+  if ('attributeType' in fields) {
+    const v = String(fields.attributeType || '').trim();
+    if (v) {
+      if (!/^[A-Za-z][A-Za-z0-9_]{1,40}$/.test(v)) throw new SafetyError('罪孽属性只能是英文标识（如 CRIMSON）');
+      if (ent.attributeType !== v) { ent.attributeType = v; touched.push('attributeType'); }
+    } else if (ent.attributeType !== undefined) {
+      delete ent.attributeType; touched.push('attributeType');
+    }
+  }
+  for (const k of BUFF_NUM_FIELDS) {
+    if (!(k in fields)) continue;
+    const raw = fields[k];
+    if (raw === null || raw === undefined || raw === '') {
+      if (ent[k] !== undefined) { delete ent[k]; touched.push(k); }
+      continue;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 9999) throw new SafetyError(k + ' 必须是 0–9999 的数字');
+    if (ent[k] !== Math.trunc(n)) { ent[k] = Math.trunc(n); touched.push(k); }
+  }
+  for (const k of BUFF_LIST_FIELDS) {
+    if (!(k in fields)) continue;
+    const arr = Array.isArray(fields[k])
+      ? fields[k].map((x) => String(x == null ? '' : x).trim()).filter(Boolean)
+      : [];
+    if (!arr.length) {
+      if (ent[k] !== undefined) { delete ent[k]; touched.push(k); }
+      continue;
+    }
+    if (arr.some((x) => x.length > 120)) throw new SafetyError(k + ' 里的单项太长（上限 120 字符）');
+    if (JSON.stringify(ent[k] || []) !== JSON.stringify(arr)) { ent[k] = arr; touched.push(k); }
+  }
+  if (!touched.length) return { id: String(id), touched: [], changed: false };
+  const result = writeBack(letheRoot, dir, mod, [{ rel: found.rel, content: JSON.stringify(doc, null, 2) }]);
+  writeBuffMeta(letheRoot, mod, String(id), { touch: true });
+  return { id: String(id), touched, changed: true, ...result };
 }

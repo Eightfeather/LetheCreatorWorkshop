@@ -58,7 +58,7 @@ export function normalizePersonalityPatch(entity = {}) {
       }
       case 'uniqueAttribute': if (v === '' || v == null) break; if (!SIN_IDS.includes(v)) bad('罪孽属性只能是 ' + SIN_IDS.join(' / ')); out[k] = v; break;
       case 'breakSection': {
-        if (!v || !Array.isArray(v.sectionList) || v.sectionList.length < 1 || v.sectionList.length > 3) bad('混乱阈值必须是 1–3 个百分比');
+        if (!v || !Array.isArray(v.sectionList) || v.sectionList.length < 1 || v.sectionList.length > 9) bad('混乱阈值必须是 1–9 个百分比');
         let prev = 101;
         for (const n of v.sectionList) {
           if (!isNum(n) || n <= 0 || n > 100) bad('混乱阈值必须是 0–100 的百分比');
@@ -203,7 +203,8 @@ export function materializeVanilla(letheRoot, name, id) {
   const van = readVanillaPersonality(letheRoot, id);
   if (!van) throw new SafetyError(`找不到原版人格：${id}`);
   const pid = String(id);
-  const stem = cleanName(String(van.entity.appearance || pid).slice(0, 60).replace(/[^\w.-]+/g, '_'), '文件名');
+  // 统一命名：<id>.json（与新建人格一致，便于用户预期与备份比对）
+  const stem = String(pid);
   const entity = {
     ...JSON.parse(JSON.stringify(van.entity)),
     id: Number(pid),
@@ -481,6 +482,73 @@ export function appearanceOptions(letheRoot) {
     }
   }
   return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+
+/* 原版外观目录：人格实体 + 全量数据里扫到的 appearance 资源名（含皮肤 / EGO 同化） */
+let _appAll = null;
+function allAppearanceStrings(letheRoot) {
+  const root = join(letheRoot, 'dumpedData');
+  if (!fs.existsSync(root)) return [];
+  let stamp = '';
+  try { stamp = String(fs.statSync(root).mtimeMs); } catch (e) { stamp = '0'; }
+  if (_appAll && _appAll.root === root && _appAll.stamp === stamp) return _appAll.list;
+  const set = new Set();
+  const re = /[0-9]{5,6}_[A-Za-z][A-Za-z0-9_]*Appearance/g;
+  const walk = (dir) => {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch (e) { return; }
+    for (const f of names) {
+      const a = join(dir, f);
+      let st;
+      try { st = fs.statSync(a); } catch (e) { continue; }
+      if (st.isDirectory()) { walk(a); continue; }
+      if (!/\.(json|txt)$/i.test(f)) continue;
+      let s = '';
+      try { s = fs.readFileSync(a, 'utf8'); } catch (e) { continue; }
+      let m;
+      while ((m = re.exec(s))) set.add(m[0]);
+    }
+  };
+  walk(root);
+  const list = [...set].sort();
+  _appAll = { root, stamp, list };
+  return list;
+}
+
+export function appearanceCatalog(letheRoot, characterId) {
+  const cid = Number(characterId) || 0;
+  const loc = readJson(join(letheRoot, 'dumpedData', 'limbus_locale', 'EN', 'personalityList.json'), {}) || {};
+  const zhOf = (pid) => {
+    const e = loc[String(pid)] || {};
+    const title = String(e.title || '').replace(/\s*\n\s*/g, ' ').trim();
+    const nm = String(e.name || '').trim();
+    if (title && nm) return title + ' ' + nm;
+    return title || nm || '';
+  };
+  const items = [];
+  const seen = new Set();
+  for (const f of pWalk(join(letheRoot, 'dumpedData', 'limbus_data', 'personality'))) {
+    const payload = readJson(f, null);
+    for (const e of entitiesOf(payload)) {
+      if (Number(e.characterId) !== cid) continue;
+      const ap = String(e.appearance || '');
+      if (!ap || ap.startsWith('!') || seen.has(ap)) continue;
+      seen.add(ap);
+      items.push({ appearance: ap, id: e.id, zh: zhOf(e.id), source: 'personality' });
+    }
+  }
+  const p3 = cid < 10 ? '10' + cid : '1' + cid;
+  for (const ap of allAppearanceStrings(letheRoot)) {
+    if (seen.has(ap)) continue;
+    const num = ap.split('_')[0];
+    const hit = num.startsWith(p3) || (num.startsWith('400') && Number(num.slice(3, 5)) === cid);
+    if (!hit) continue;
+    seen.add(ap);
+    items.push({ appearance: ap, id: Number(num), zh: '', source: 'extra' });
+  }
+  items.sort((a, b) => String(a.id).localeCompare(String(b.id)) || a.appearance.localeCompare(b.appearance));
+  return { characterId: cid, items, total: items.length };
 }
 
 /** 写立绘：kind = profile | cg，dataUrl 必须是 png（游戏只认 png 命名） */

@@ -317,3 +317,33 @@ export function buffIconIndex(letheRoot) {
   }
   return map;
 }
+
+
+/**
+ * 游戏写法 → 编辑器显示写法：把 [英文id] 还原成 [中文名]。
+ * 用于「识别被动文件里已有的描述」——那些描述是游戏格式（[Combustion]/[WhenUse]），
+ * 直接显示给用户看不懂；这里只做显示层还原，保存时仍由 toGameText 转回去。
+ */
+export function fromGameText(text, tables) {
+  const src = String(text === undefined || text === null ? '' : text);
+  if (!src) return '';
+  const zh = new Map();
+  const put = (id, name) => {
+    const k = String(id || '');
+    const v = String(name || '');
+    if (!k || !v || zh.has(k)) return;
+    zh.set(k, v);
+  };
+  // 优先级：显示时点 → 引擎时点 → 技能标签 → 罪孽 → 关键词 → Buff
+  for (const t of tables.displayTimings || []) put(t.id, t.zh);
+  for (const t of tables.timings || []) put(t.en, t.zh);
+  for (const t of tables.tags || []) put(t.id, t.zh);
+  for (const s of tables.sins || []) put(s.id || s.en, s.zh);
+  for (const k of tables.keywordIds || []) put(k.id, k.zh);
+  for (const b of tables.buffIds || []) put(b.id, b.zh);
+  return src.replace(/\[([^\[\]\r\n]{1,80})\]/g, (whole, inner) => {
+    const id = String(inner).trim();
+    const hit = zh.get(id);
+    return hit ? '[' + hit + ']' : whole;
+  });
+}

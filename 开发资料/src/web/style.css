@@ -1539,3 +1539,75 @@ select option { background: #141110; color: #E8DCC6; }
 .ps-text{flex:1 1 auto;width:100%;border:0;outline:none;resize:none;background:transparent;color:#EADFC6;font:13px/1.55 ui-monospace,"Cascadia Mono",Consolas,monospace;padding:12px 14px;white-space:pre;overflow:auto;tab-size:2}
 .ps-text[readonly]{color:#D8CDB5}
 .ps-foot{font-size:12px;line-height:1.6}
+
+/* ---------- 被动编辑：条件三态 ---------- */
+.seg-row{display:flex;gap:6px;margin:8px 0 10px;flex-wrap:wrap}
+.seg{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:#1a1512;cursor:pointer;font-size:12.5px;color:var(--text-muted)}
+.seg.active{border-color:var(--gold);background:#241d15;color:#F7E7C4}
+.p-cond-list{display:flex;flex-direction:column;gap:6px;margin:6px 0 8px}
+.p-cond-row{display:grid;grid-template-columns:minmax(0,1fr) 76px 28px;gap:6px;align-items:center}
+.p-cond-row select,.p-cond-row input{height:30px;background:#1a1512;border:1px solid var(--line);border-radius:5px;color:var(--text);padding:0 6px;font-size:12.5px;width:100%}
+.p-cond-row input::-webkit-outer-spin-button,.p-cond-row input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.desc-input.slim{height:32px;padding:4px 8px}
+
+/* 被动基础信息：随「代码」标签页显示 */
+.skill-body.passive-body{grid-template-columns:minmax(0,1fr)}
+.skill-body.passive-body > .editor-card{min-width:0}
+.passive-body .info-card{margin-bottom:10px}
+.passive-body .info-card .col-title{margin-top:0}
+
+/* 被动：已识别脚本 */
+.pr-wrap{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.pr-card{border:1px solid #3a2d20;background:#1a1512;border-radius:6px;padding:8px 10px;margin-top:8px}
+.pr-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pr-hat{font-weight:700;color:#F2D9A0}
+.pr-tag{font-size:11.5px;color:#B7A483;border:1px solid #43362a;border-radius:999px;padding:1px 8px}
+.pr-tag.pr-mod{color:#9FC7A0;border-color:#3d5340}
+.pr-tag.pr-raw{color:#C98A3C;border-color:#5a4326}
+.pr-tree{margin-top:6px;font-size:12.5px;color:#D9CBB2}
+.pr-line{display:flex;align-items:baseline;gap:6px;line-height:1.7;font-family:Consolas,monospace}
+.pr-dot{width:4px;height:4px;border-radius:50%;background:var(--gold);flex:0 0 auto;transform:translateY(-2px)}
+.pr-code{margin-top:6px}
+.pr-code summary{cursor:pointer;font-size:12px;color:#9d8a70}
+.pr-code pre{white-space:pre-wrap;word-break:break-all;font-size:11.5px;color:#a9977d;margin:6px 0 0}
+
+/* 从文件还原的描述提示 */
+.banner.soft{background:#241d15;border:1px solid #4a3a26;color:#d8c39a;padding:6px 10px;border-radius:5px;font-size:12.5px;margin:6px 0}
+
+/* v0.8.12：技能脚本识别（技能级 / 每枚硬币） */
+.sg-block{margin-top:10px}
+.sg-block .col-title{margin-bottom:6px}
+
+/* v0.8.14 硬币描述多段徽标 */
+.seg-badge{display:inline-flex;align-items:center;height:18px;padding:0 7px;border:1px solid #7a5f33;border-radius:9px;background:#2b2318;color:#E3C07E;font-size:11px;margin-right:6px}
+
+/* v0.8.16 Buff 脚本编辑 */
+.bs-list .pr-card{margin-bottom:8px}
+.bs-text{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-all;margin-top:6px}
+
+
+/* v0.9.0 镜牢编辑：底栏 5 项等分 */
+.dock-nav { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
+
+/* v0.9.1 立绘区：真图 / 空态 */
+.pp-art.has-img { padding: 0; overflow: hidden; background: #0f0c0a; }
+.pp-art .pp-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pp-art.pp-noimg { display: flex; align-items: center; justify-content: center; color: var(--muted, #A79780); font-size: 12.5px; letter-spacing: .08em; background: repeating-linear-gradient(45deg, #191411, #191411 10px, #1e1814 10px, #1e1814 20px); }
+.pf-split { grid-template-columns: minmax(0, 1fr); }
+
+/* v0.9.1 外观资源名：展开列表 */
+.p-app-panel { margin-top: 8px; border: 1px solid var(--line); background: #17120f; padding: 8px; }
+.p-app-panel .p-app-q { width: 100%; margin-bottom: 6px; }
+.p-app-list2 { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.p-app-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; text-align: left; padding: 4px 6px; background: transparent; border: 1px solid transparent; color: var(--text); font: inherit; cursor: pointer; }
+.p-app-row:hover { border-color: var(--line); background: #1d1713; }
+.p-app-en { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; color: #d9c9a8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-app-zh { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-app-note { margin-top: 6px; font-size: 11.5px; }
+.p-app-toggle { margin-left: 6px; }
+.p-row.app-row { align-items: flex-start; }
+
+/* v0.9.2 只读查看（原版人格） */
+.p-main.p-readonly > *:not(.p-ro-banner) { pointer-events: none; opacity: .96; }
+.p-ro-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.p-ro-banner .btn { margin-left: auto; pointer-events: auto; }

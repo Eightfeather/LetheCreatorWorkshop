@@ -75,15 +75,16 @@ export const TEST_MODULES = [
 ];
 
 export const DEFAULT_PASSIVE_INFO = {
-  needCondition: false,
-  sin: 'CRIMSON',
-  conditionType: 'have',
-  count: 0,
+  conditionMode: 'none',
+  stockConditions: [],
+  resonanceConditions: [],
 };
 
+/** 被动启动条件三态（互斥）：无条件 / 资源拥有（attributeStockCondition）/ 资源共鸣（attributeResonanceCondition） */
 export const PASSIVE_CONDITION_TYPES = [
-  { id: 'have', zh: '拥有' },
-  { id: 'resonance', zh: '共鸣' },
+  { id: 'none', zh: '无条件' },
+  { id: 'stock', zh: '资源拥有' },
+  { id: 'resonance', zh: '资源共鸣' },
 ];
 
 export const DEFAULT_BUFF_INFO = {
@@ -233,12 +234,35 @@ export function writeSkillCode(letheRoot, mod, id, code = {}) {
 
 /* ----------------------------- 被动 / buff 元数据 ----------------------------- */
 
+function normPassiveConds(list, fallback = []) {
+  const arr = Array.isArray(list) && list.length ? list : fallback;
+  const seen = new Set();
+  const out = [];
+  for (const c of arr) {
+    if (!c || typeof c !== 'object') continue;
+    const type = String(c.type || '');
+    if (!SIN_TYPES.some((x) => x.id === type)) continue;
+    if (seen.has(type)) continue;
+    seen.add(type);
+    out.push({ type, value: Math.max(1, Math.min(99, Number(c.value) || 1)) });
+  }
+  return out;
+}
+
 function normalizePassiveMeta(doc, id) {
   const src = doc && typeof doc === 'object' ? doc : {};
-  const info = { ...DEFAULT_PASSIVE_INFO, ...(src.info || {}) };
-  info.count = Math.max(0, Math.min(99, Number(info.count) || 0));
-  if (!PASSIVE_CONDITION_TYPES.some((x) => x.id === info.conditionType)) info.conditionType = 'have';
-  if (!SIN_TYPES.some((x) => x.id === info.sin)) info.sin = 'CRIMSON';
+  const raw = src.info && typeof src.info === 'object' ? src.info : {};
+  const info = { ...DEFAULT_PASSIVE_INFO };
+  const legacyCond = raw.sin || raw.count
+    ? [{ type: String(raw.sin || 'CRIMSON'), value: Math.max(1, Math.min(99, Number(raw.count) || 1)) }]
+    : [];
+  info.conditionMode = raw.conditionMode === 'stock' || raw.conditionMode === 'resonance'
+    ? raw.conditionMode
+    : (raw.needCondition ? (raw.conditionType === 'resonance' ? 'resonance' : 'stock') : 'none');
+  info.stockConditions = normPassiveConds(raw.stockConditions, info.conditionMode === 'none' ? [] : legacyCond);
+  info.resonanceConditions = normPassiveConds(raw.resonanceConditions, []).slice(0, 1);
+  if (info.conditionMode === 'stock') info.resonanceConditions = [];
+  else if (info.conditionMode === 'resonance') info.stockConditions = [];
   const code = src.code && typeof src.code === 'object' ? src.code : {};
   return {
     version: META_VERSION,
@@ -331,7 +355,7 @@ export function ensureTestModules(letheRoot) {
 /* ------------------------------ 模块积木程序 ------------------------------ */
 const PROG_MAX_NODES = 400;
 const PROG_MAX_DEPTH = 8;
-const BLOCK_KINDS = new Set(['timing', 'loop', 'cons', 'if', 'ifnot', 'continueif', 'assign']);
+const BLOCK_KINDS = new Set(['timing', 'loop', 'cons', 'if', 'ifnot', 'continueif', 'assign', 'raw']);
 const LOGIC_KINDS = new Set(['none', 'and', 'or', 'xor']);
 const VALUE_KINDS = new Set(['acq', 'target', 'var', 'n', 's', 'math']);
 const MATH_OPS = new Set(['+', '-', '*', '%', '!', '¡', '?']);
@@ -445,6 +469,12 @@ function pushStmt(raw, depth, budget) {
     const a = Array.isArray(raw.a) ? raw.a.map((x) => pushValue(x, depth + 1, budget)) : [];
     return { k, n, a: a.slice(0, 12) };
   }
+  if (k === 'raw') {
+    const text = String(raw.text || '').trim();
+    if (!text) return null;
+    return { k, text: text.slice(0, 300) };
+  }
+
   // if / ifnot / continueif
   const logic = LOGIC_KINDS.has(String(raw.logic)) ? String(raw.logic) : 'none';
   const rawConds = Array.isArray(raw.conds) && raw.conds.length ? raw.conds : [{ left: raw.left, op: raw.op, right: raw.right }];
