@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import { migrateToLcw, ensureLcwPart } from '../lethe/lcw.mjs';
 import { ARG_COUNTS } from '../knowledge/arg-counts.mjs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { APP_ROOT, USER_DATA_DIR } from '../paths.mjs';
 import { configPath, rememberRoot, saveConfig } from '../config.mjs';
 import { locate, scanStats } from '../locate.mjs';
@@ -1211,10 +1211,21 @@ export function buildApi(ctx) {
 
     'POST /api/reveal': async (body) => {      const p = String(body.path || '');
       const { letheRoot } = need();
-      const okRoot = letheRoot && p.toLowerCase().startsWith(letheRoot.toLowerCase());
-      const okUser = p.toLowerCase().startsWith(USER_DATA_DIR.toLowerCase());
-      if (!okRoot && !okUser) {
-        const err = new Error('只允许打开私服或用户数据目录内的路径');
+      const low = p.toLowerCase();
+      const insideOf = (base) => Boolean(base) && (low === String(base).toLowerCase() || low.startsWith(String(base).toLowerCase() + '\\'));
+      const okRoot = insideOf(letheRoot);
+      const okUser = insideOf(USER_DATA_DIR);
+      // 插件目录：Lethe 的上级；另兼容 gameRoot 指向 BepInEx 或其上级的两种情形
+      const bases = [];
+      if (letheRoot) bases.push(dirname(letheRoot));
+      if (state.gameRoot) {
+        bases.push(join(state.gameRoot, 'BepInEx', 'plugins'));
+        bases.push(join(state.gameRoot, 'plugins'));
+        bases.push(state.gameRoot);
+      }
+      const okPlugins = bases.some((b) => insideOf(b));
+      if (!okRoot && !okUser && !okPlugins) {
+        const err = new Error('只允许打开私服、插件目录或用户数据目录内的路径');
         err.status = 400;
         throw err;
       }

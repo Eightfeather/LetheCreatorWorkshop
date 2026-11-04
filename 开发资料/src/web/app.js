@@ -238,7 +238,23 @@ function restoreScrollMap(map) {
   }
 }
 
+function assertState() {
+  // 不变量：视图状态只允许落在各自的枚举里（0.9.0 的“镜牢→编辑空白”就是因为 editKind 被复用）
+  const wizKinds = WIZARDS.map((w) => w.kind);
+  if (S.editKind && !wizKinds.includes(S.editKind)) {
+    console.warn('[state] editKind 非法，已重置为向导首页：', S.editKind);
+    S.editKind = null; S.personalityId = null; S.personality = null;
+    S.moduleEditing = null; S.mb = null; S.mbDoc = null;
+  }
+  if (S.mdKind && !MD_UI.includes(S.mdKind)) {
+    console.warn('[state] mdKind 非法，已重置为镜牢表列表：', S.mdKind);
+    S.mdKind = null; S.md = null; S.mdId = null;
+  }
+  return true;
+}
+
 function render() {
+  assertState();
   const view = $('#view');
   if (!view) return;
   if (!S.status) {
@@ -773,15 +789,6 @@ function renderSinnerPersonalities(banner) {
   </div>`;
 }
 
-function fieldRow(label, path, value, opts = {}) {
-  if (opts.textarea) {
-    return `<label class="field"><span>${label}</span><textarea rows="3" data-field="${path}">${esc(value ?? '')}</textarea></label>`;
-  }
-  const type = opts.type || 'text';
-  const step = opts.step ? ` step="${opts.step}"` : '';
-  return `<label class="field"><span>${label}</span><input type="${type}"${step} data-field="${path}" value="${esc(value ?? '')}"></label>`;
-}
-
 /* ============================ 人格编辑（v0.8.0） ============================ */
 
 const ATK_LIST = ['SLASH', 'PENETRATE', 'HIT'];
@@ -831,14 +838,6 @@ function pSinZh(id) {
 function pSinChip(e) {
   const v = e && e.uniqueAttribute;
   return `<span class="p-chip p-sin" title="主属性（罪孽）：${esc(v || '未设置')}">${esc(v ? pSinZh(v) : '—')}</span>`;
-}
-function pSinSelect(e) {
-  const t = pTables();
-  const cur = e.uniqueAttribute || '';
-  const list = (t.sins || []).map((s) => String(s.id));
-  if (cur && !list.includes(String(cur))) list.push(String(cur));
-  const opt = [''].concat(list).map((id) => `<option value="${esc(id)}" ${String(cur) === String(id) ? 'selected' : ''}>${id ? esc(pSinZh(id)) : '未设置'}</option>`).join('');
-  return `<select data-field="entity.uniqueAttribute">${opt}</select>`;
 }
 /* 词条短标签（文档 17 第 4 条）：去掉 <color>/<s> 之类富文本，长名截断 */
 function pShort(text, n = 12) {
@@ -1321,18 +1320,6 @@ async function openPortraitModal() {
   });
 }
 
-async function openSourceModal() {
-  if (!S.personality) return;
-  const res = await api(`/api/personality/source?name=${encodeURIComponent(S.selected)}&id=${encodeURIComponent(S.personality.id)}`);
-  const text = JSON.stringify({ entity: res.entity, locale: res.locale }, null, 2);
-  modal({
-    title: '查看源代码',
-    body: `<div class="src-host"><textarea id="p-source-text" class="src-text" readonly spellcheck="false">${esc(text)}</textarea>
-      <div class="hint muted">只读。点「手动修改」后可直接编辑 JSON，保存会写回实体与本地化文件（字段校验仍生效）。</div></div>`,
-    footer: '<button class="btn ghost" data-act="close-modal">关闭</button><button class="btn ghost" data-act="p-source-edit">手动修改</button><button class="btn primary" data-act="p-source-save">保存</button>',
-  });
-}
-
 /* --------------------------- 人格编辑：数据交互层 --------------------------- */
 
 async function pPatch(patch) {
@@ -1723,7 +1710,7 @@ const actions = {
       S.md = null;
       S.mdId = null;
       await ensureMdSchemas();
-      if (S.editKind) await loadMdList(nm, S.editKind);
+      if (S.mdKind) await loadMdList(nm, S.mdKind);
       render();
       return;
     }
@@ -2216,13 +2203,13 @@ const actions = {
     S.md = null;
     S.mdId = String(el.dataset.id);
     S.mdDirty = false;
-    const res = await api(`/api/md/one?kind=${S.editKind}&name=${encodeURIComponent(S.selected)}&id=${encodeURIComponent(S.mdId)}`);
+    const res = await api(`/api/md/one?kind=${S.mdKind}&name=${encodeURIComponent(S.selected)}&id=${encodeURIComponent(S.mdId)}`);
     S.md = { entity: res.entity || {}, locale: res.locale || {}, applied: res.applied, appliedAt: res.appliedAt || '' };
     render();
   },
   'new-md': async () => {
-    const res = await api(`/api/md/next?kind=${S.editKind}&name=${encodeURIComponent(S.selected)}`);
-    const spec = mdSpec(S.editKind);
+    const res = await api(`/api/md/next?kind=${S.mdKind}&name=${encodeURIComponent(S.selected)}`);
+    const spec = mdSpec(S.mdKind);
     S.mdId = String(res.id);
     S.md = { entity: JSON.parse(JSON.stringify(spec.defaults || {})), locale: { name: '', desc: '' }, applied: false };
     S.mdDirty = true;
@@ -2230,31 +2217,31 @@ const actions = {
   },
   'save-md': async () => {
     if (!S.md) return;
-    const body = { name: S.selected, kind: S.editKind, id: S.mdId, entity: S.md.entity, locale: S.md.locale };
+    const body = { name: S.selected, kind: S.mdKind, id: S.mdId, entity: S.md.entity, locale: S.md.locale };
     await api('/api/md/save', { method: 'POST', body });
-    const spec = mdSpec(S.editKind);
+    const spec = mdSpec(S.mdKind);
     toast(`已保存${spec.zh.replace('镜牢', '')} ${S.mdId}`, 'ok');
     S.mdDirty = false;
-    await loadMdList(S.selected, S.editKind);
+    await loadMdList(S.selected, S.mdKind);
     render();
   },
   'apply-md': async () => {
     if (!S.md) return;
-    await api('/api/md/apply', { method: 'POST', body: { name: S.selected, kind: S.editKind, id: S.mdId } });
-    toast(`已落地到游戏文件（${mdSpec(S.editKind).zh} ${S.mdId}）`, 'ok');
+    await api('/api/md/apply', { method: 'POST', body: { name: S.selected, kind: S.mdKind, id: S.mdId } });
+    toast(`已落地到游戏文件（${mdSpec(S.mdKind).zh} ${S.mdId}）`, 'ok');
     S.md = { ...S.md, applied: true, appliedAt: new Date().toISOString() };
-    await loadMdList(S.selected, S.editKind);
+    await loadMdList(S.selected, S.mdKind);
     render();
   },
   'apply-md-all': async () => {
-    const res = await api('/api/md/apply-all', { method: 'POST', body: { name: S.selected, kind: S.editKind } });
+    const res = await api('/api/md/apply-all', { method: 'POST', body: { name: S.selected, kind: S.mdKind } });
     toast(`批量落地：成功 ${res.landed.length}，失败 ${res.failed.length}`, res.failed.length ? 'warn' : 'ok');
-    await loadMdList(S.selected, S.editKind);
+    await loadMdList(S.selected, S.mdKind);
     render();
   },
   'delete-md': () => {
     if (!S.md) return;
-    const spec = mdSpec(S.editKind);
+    const spec = mdSpec(S.mdKind);
     modal({
       title: `删除${spec.zh}`,
       body: `<div class="danger-box"><b>只删编辑器里的草稿，不动游戏文件。</b><div class="muted">${esc(spec.zh)} <code>${esc(S.mdId)}</code> 的草稿会被彻底删除；已经落地到 Mod 的文件保留。</div></div>`,
@@ -2262,12 +2249,12 @@ const actions = {
     });
   },
   'confirm-delete-md': async () => {
-    await api('/api/md/delete', { method: 'POST', body: { name: S.selected, kind: S.editKind, id: S.mdId } });
+    await api('/api/md/delete', { method: 'POST', body: { name: S.selected, kind: S.mdKind, id: S.mdId } });
     closeModal();
     toast('草稿已删除', 'warn');
     S.md = null;
     S.mdId = null;
-    await loadMdList(S.selected, S.editKind);
+    await loadMdList(S.selected, S.mdKind);
     render();
   },
   'md-add-node': () => {
@@ -2283,7 +2270,7 @@ const actions = {
   'md-add-row': (el) => {
     if (!S.md) return;
     const key = el?.dataset?.list || 'upgradeList';
-    const spec = mdSpec(S.editKind);
+    const spec = mdSpec(S.mdKind);
     const f = (spec.fields || []).find((x) => x.key === key);
     const row = {};
     if (f?.type === 'mental') { row.group = 'add'; row.level = 1; row.conditionIDs = []; }
@@ -2328,31 +2315,30 @@ const actions = {
     if (one && cb) cb(one);
   },
   'md-kind': async (el) => {
-    S.editKind = el.dataset.kind;
-    S.editKind = S.editKind;
+    S.mdKind = el.dataset.kind;
     S.md = null;
     S.mdId = null;
     S.mdDirty = false;
     await ensureMdSchemas();
-    if (S.selected) await loadMdList(S.selected, S.editKind);
+    if (S.selected) await loadMdList(S.selected, S.mdKind);
     else toast('先从左侧选一个 Mod，再挑这张表', 'warn');
     render();
   },
   'md-back': () => {
-    S.editKind = null;
+    S.mdKind = null;
     S.md = null;
     S.mdId = null;
     render();
   },
   'md-clone': () => {
-    const from = CLONE_FROM[S.editKind];
+    const from = CLONE_FROM[S.mdKind];
     if (!from) return;
     openPicker(from, async (it) => {
       const label = it.name || it.nameZh || '';
-      const res = await api('/api/md/clone', { method: 'POST', body: { kind: S.editKind, name: S.selected, fromId: it.id, cat: it.cat || '', label } });
+      const res = await api('/api/md/clone', { method: 'POST', body: { kind: S.mdKind, name: S.selected, fromId: it.id, cat: it.cat || '', label } });
       toast(`已载入 ${label || it.id} → 新草稿 #${res.id}`, 'ok');
       await loadMdList();
-      const one = await api(`/api/md/one?kind=${S.editKind}&name=${encodeURIComponent(S.selected)}&id=${res.id}`);
+      const one = await api(`/api/md/one?kind=${S.mdKind}&name=${encodeURIComponent(S.selected)}&id=${res.id}`);
       S.md = { entity: one.entity || {}, locale: one.locale || {}, applied: Boolean(one.applied), appliedAt: one.appliedAt || '' };
       S.mdId = String(res.id);
       S.mdDirty = false;
@@ -2362,7 +2348,7 @@ const actions = {
   'md-remove-landed': async () => {
     if (!S.md) return;
     if (!S.md.applied) { toast('这条还没落地过', 'error'); return; }
-    const res = await api('/api/md/remove-landed', { method: 'POST', body: { kind: S.editKind, name: S.selected, id: S.mdId } });
+    const res = await api('/api/md/remove-landed', { method: 'POST', body: { kind: S.mdKind, name: S.selected, id: S.mdId } });
     toast(`已撤掉落地：搬走 ${res.moved.length} 个文件（备份在 LCW/backups/md-remove）`, 'ok');
     S.md = res.doc || { ...S.md, applied: false, appliedAt: '' };
     await loadMdList();
@@ -2485,7 +2471,7 @@ function leaveToAreaTop(view) {
   } else if (view === 'mods') {
     S.modDetail = null; S.selectedDll = null; S.detailTab = 'overview'; S.backupView = null;
   } else if (view === 'md') {
-    S.editKind = null; S.md = null; S.mdId = null; S.mdDirty = false;
+    S.mdKind = null; S.md = null; S.mdId = null; S.mdDirty = false;
   }
   S.pSourceScroll = 0;
 }
@@ -3740,40 +3726,6 @@ async function openModuleProps(id) {
   });
 }
 
-function renderModuleForm() {
-  const m = (S.modules || []).find((x) => x.id === S.moduleEditing);
-  if (!m) {
-    return '<section class="panel"><div class="panel-body"><div class="empty-state"><div class="empty-mark">▤</div><p>从左侧选一个模块</p><small class="muted">或新建模块</small></div></div></section>';
-  }
-  const timings = S.keywords?.timings || [];
-  const scopes = (S.scopeTables && S.scopeTables.list) || [{ id: 'common', zh: '通用', desc: '' }];
-  const opt = (arr, v) => arr.map((x) => '<option value="' + esc(x.id) + '"' + (String(x.id) === String(v) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('');
-  const timingValue = (v) => {
-    const raw = String(v || '');
-    if (!raw) return '';
-    const byId = timings.find((x) => String(x.id) === raw);
-    return byId ? byId.en : raw;
-  };
-  const timingOpt = timings.map((x) => {
-    const val = x.en || String(x.id);
-    const sel = val.toLowerCase() === timingValue(m.prefix).toLowerCase() ? ' selected' : '';
-    const label = x.zh ? x.zh + ' · ' + x.en : x.en;
-    return '<option value="' + esc(val) + '"' + sel + '>' + esc(label) + '</option>';
-  }).join('');
-  const ro = m.test ? ' disabled' : '';
-  return '<section class="panel module-form"><div class="panel-head"><strong>' + esc(m.name || m.id) + '</strong><span class="spacer"></span>'
-    + (m.test ? '<span class="tag warn">测试模块 · 只读</span><button class="btn danger sm" data-act="delete-module">删除测试模块</button>' : '<button class="btn ok sm" data-act="save-module">保存</button><button class="btn danger sm" data-act="delete-module">删除</button>')
-    + '</div><div class="panel-body"><div class="form">'
-    + '<label class="field"><span>模块名称</span><input id="mod-name" value="' + esc(m.name || '') + '"' + ro + '></label>'
-    + '<div class="grid-2">'
-    + '<label class="field"><span>所属前缀（时点）</span><select id="mod-prefix"' + ro + '><option value="">（未指定）</option>' + timingOpt + '</select></label>'
-    + '<label class="field"><span>用途</span><select id="mod-scope"' + ro + '>' + scopes.map((k) => '<option value="' + esc(k.id) + '"' + (String(k.id) === String(m.scope || 'common') ? ' selected' : '') + '>' + esc(k.zh) + '</option>').join('') + '</select></label>'
-    + '</div>'
-    + '<label class="field"><span>模块描述（可执行词条）</span><textarea id="mod-desc" class="desc-input" rows="6" spellcheck="false"' + ro + ' placeholder="例如：[使用时]若目标的[烧伤]强度与[震颤]强度之和不低于6级，则使本技能的硬币威力+1">' + esc(m.desc || '') + '</textarea></label>'
-    + '<div class="hint muted">改动点「保存」后写入模块库；测试模块不可修改与删除。</div>'
-    + '</div></div></section>';
-}
-
 /* ============================ 模块积木编辑器（Scratch 式） ============================ */
 
 const MB_TARGETS = [
@@ -3891,20 +3843,6 @@ function mbCompatible(slotType, valueType) {
   return true;
 }
 
-function mbSlotType(chain) {
-  const all = String(chain || '').split(':');
-  const stmt = mbStmt(all[0]);
-  if (!stmt) return 'any';
-  const last = all[all.length - 1];
-  const prev = all[all.length - 2] || '';
-  if (/^a(\d+)$/.test(last)) return mbArgType('consequence', stmt.n, Number(RegExp.$1));
-  if (last === 'val') return 'num';
-  if (last === 'loop') return 'target';
-  if (last === 'left' || last === 'right') return 'num';
-  if (last === 'op') return 'op';
-  if (/^c\d+$/.test(last)) return 'any';
-  return 'any';
-}
 const MB_VARS = Array.from({ length: 10 }, (_, i) => 'VALUE_' + i);
 const MB_MATH_OPS = [['+', '加 +'], ['-', '减 -'], ['*', '乘 *'], ['%', '除 %'], ['!', '取小 !'], ['¡', '取大 ¡'], ['?', '取余 ?']];
 
@@ -4149,14 +4087,6 @@ function mbCondRow(c, idStr, i, total) {
     + '</div>';
 }
 
-function mbSetLoop(idStr, node) {
-  const st = mbStmt(idStr);
-  if (!st) return false;
-  mbSnapshot();
-  st.loop = node || null;
-  return true;
-}
-
 function mbStmtHtml(b, idStr) {
   if (!b) return '';
   if (b.k === 'timing') {
@@ -4352,6 +4282,11 @@ function mbPropsHtml() {
     + '<label class="field"><span>描述（可执行词条）</span><textarea id="mb-desc" rows="3" class="desc-input">' + esc(m.desc || '') + '</textarea></label></div>';
 }
 
+/** 兼容旧名：返回 { list, ids }（缺模块状态时安全返回空） */
+function mbPendingMissing() {
+  try { return mbMissingInfo(); } catch (e) { return { list: [], ids: new Set() }; }
+}
+
 function mbMissingInfo() {
   const list = [];
   const ids = new Set();
@@ -4383,10 +4318,6 @@ function mbMissingInfo() {
   };
   walk((S.mb && S.mb.program && S.mb.program.blocks) || [], '');
   return { list, ids };
-}
-function mbMissingRequired() { return mbMissingInfo().list; }
-function mbPendingMissing() {
-  try { return mbMissingInfo(); } catch (e) { return { list: [], ids: new Set() }; }
 }
 function mbDotHtml(idStr) {
   const ids = S.mb && S.mb.missingIds;
@@ -4678,12 +4609,6 @@ function renderModuleEditorInner(back) {
 }
 /* ---------------- 程序变更 ---------------- */
 
-function mbRowByName(name) { return (S.mbTables || []).find((r) => r.name === name); }
-function mbArgEnum(kind, name, i) {
-  const m = (S.keywords && S.keywords.argEnums) || {};
-  return m[kind + ':' + name + ':' + i] || null;
-}
-
 // 固定取值集合 → 下拉；其余仍走积木槽
 function mbArgHtml(v, chain, slotType, kind, name, i) {
   const en = mbArgEnum(kind, name, i);
@@ -4829,18 +4754,6 @@ function mbGuardDirty(then) {
 }
 function mbSetSlot(chain, value) { const ref = mbAccess(chain); if (!ref) return false; ref.set(value); return true; }
 function mbClearSlot(chain) { const ref = mbAccess(chain); if (!ref) return; mbSnapshot(); ref.set(null); }
-function mbInsideLoop(stackId) {
-  const p = String(stackId || 'root');
-  if (p === 'root') return false;
-  let list = S.mb.program.blocks;
-  for (const k of p.split(".").map(Number)) {
-    const n = list && list[k];
-    if (!n) return false;
-    if (n.k === 'loop') return true;
-    list = n.body;
-  }
-  return false;
-}
 function mbKindName(node) {
   const k = node && node.k;
   return k === 'if' ? '如果' : k === 'ifnot' ? '如果否' : k === 'continueif' ? '继续如果' : k === 'assign' ? '赋值' : '效果块';
@@ -5202,47 +5115,6 @@ function mbPickButton(chain, kind, val, label, sub) {
     + '<b>' + esc(label) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</button>';
 }
 
-function openSlotPicker(chain, type) {
-  const st = type || 'any';
-  const zh = MB_TYPE_ZH[st] || MB_TYPE_ZH.any;
-  let body = '<div class="mb-pick-wrap">';
-  if (st === 'target' || st === 'any') {
-    const groups = [['single', '单目标'], ['multi', '多目标']];
-    body += '<div class="field"><span>目标选择器</span>';
-    for (const [g, label] of groups) {
-      body += '<div class="mb-group">' + label + '</div><div class="mb-picks">'
-        + MB_TARGETS.filter((t) => t.g === g).map((t) => mbPickButton(chain, 'target', t.n, t.zh, t.n)).join('')
-        + '</div>';
-    }
-    body += '<div class="mb-group">自定义</div><div class="mb-picks">'
-      + '<button class="btn ghost sm" data-act="mb-custom-target" data-chain="' + esc(chain) + '">自定义目标…</button>'
-      + '</div></div>';
-  }
-  if (st === 'num' || st === 'any') {
-    body += '<div class="field"><span>数值 / VALUE 寄存器</span><div class="mb-picks">'
-      + mbPickButton(chain, 'n', '0', '数值 0', '之后可点 ✎ 改')
-      + MB_VARS.map((v) => mbPickButton(chain, 'var', v, v, '寄存器')).join('')
-      + '</div><div class="row-inline"><input id="mb-pick-num" class="num" type="number" placeholder="整数"><button class="btn primary sm" data-act="mb-pick-num" data-chain="' + esc(chain) + '">填入整数</button></div></div>';
-  }
-  if (st === 'var') {
-    body += '<div class="field"><span>VALUE 寄存器</span><div class="mb-picks">' + MB_VARS.map((v) => mbPickButton(chain, 'var', v, v, '寄存器')).join('') + '</div></div>';
-  }
-  if (st === 'buff') {
-    const list = mbBuffChoices();
-    const opts = list.slice(0, 3000).map((b) => '<option value="' + esc(b.id) + '">' + esc((b.zh ? b.zh + ' · ' : '') + b.id + ' · ' + buffOwnerTag(b.id, b.mod, b.source)) + '</option>').join('');
-    body += '<div class="field"><span>Buff 关键词（英文 id）</span><div class="row-inline"><select id="mb-pick-buff">' + opts + '</select>'
-      + '<button class="btn primary sm" data-act="mb-pick-buff" data-chain="' + esc(chain) + '">填入</button></div></div>';
-  }
-  if (st === 'op') {
-    body += '<div class="field"><span>运算符</span><div class="mb-picks">' + ['ADD', 'SUB', 'MUL'].map((o) => mbPickButton(chain, 's', o, o, '')).join('') + '</div></div>';
-  }
-  if (st === 'text' || st === 'any') {
-    body += '<div class="field"><span>文本</span><div class="row-inline"><input id="mb-pick-text" placeholder="输入文本"><button class="btn primary sm" data-act="mb-pick-text" data-chain="' + esc(chain) + '">填入文本</button></div></div>';
-  }
-  body += '<div class="hint muted">这个位置只接受「' + esc(zh) + '」类型的块；也可以从左侧调色板直接拖入。</div></div>';
-  modal({ title: '填入「' + esc(zh) + '」', body, footer: '<button class="btn ghost" data-act="close-modal">取消</button>' });
-}
-
 function mbPickApply(chain, node) {
   if (!mbSetSlot(chain, node)) return;
   closeModal();
@@ -5356,19 +5228,6 @@ function openMbEdit(chain) {
     footer: '<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="mb-edit-ok" data-chain="' + esc(chain) + '">确定</button>',
   });
   setTimeout(() => { const i = document.getElementById('mb-edit-input'); if (i) { i.focus(); i.select(); } }, 30);
-}
-
-async function mbSaveProps() {
-  const m = S.mbDoc;
-  if (!m || m.test) return;
-  const val = (sel) => document.querySelector(sel)?.value;
-  const res = await api('/api/module/save', {
-    method: 'POST',
-    body: { id: m.id, name: val('#mb-name'), prefix: val('#mb-prefix'), kind: val('#mb-kind'), desc: val('#mb-desc') },
-  });
-  S.mbDoc = res.module;
-  S.modules = (await api('/api/modules')).modules;
-  render();
 }
 
 Object.assign(actions, {
@@ -5766,7 +5625,9 @@ function mdSpec(kind) {
   return (S.mdSchemas || []).find((s) => s.kind === kind) || { kind, zh: '镜牢表', fields: [], nodeTypes: [], defaults: {} };
 }
 
-async function loadMdList(name = S.selected, kind = S.editKind) {
+async function loadMdList(name, kind) {
+  name = name || S.selected;
+  kind = kind || S.mdKind;
   if (!name || !kind) return;
   const res = await api(`/api/md/list?kind=${kind}&name=${encodeURIComponent(name)}`);
   S.mdList = res.items || [];
@@ -5774,7 +5635,7 @@ async function loadMdList(name = S.selected, kind = S.editKind) {
 
 /** 行内单元格写回：按列声明的类型清洗（nums 列必须存数组，否则渲染时 .join 会炸） */
 function mdRowValue(key, colKey, raw, isNumberInput) {
-  const spec = mdSpec(S.editKind);
+  const spec = mdSpec(S.mdKind);
   const f = (spec.fields || []).find((x) => x.key === key);
   const c = f && Array.isArray(f.cols) ? f.cols.find((x) => x.key === colKey) : null;
   const type = c ? c.type : (isNumberInput ? 'number' : 'text');
@@ -5790,7 +5651,7 @@ function mdRowValue(key, colKey, raw, isNumberInput) {
 function mdSetField(el) {
   if (!S.md) return;
   const key = el.dataset.mdinfo;
-  const spec = mdSpec(S.editKind);
+  const spec = mdSpec(S.mdKind);
   const f = (spec.fields || []).find((x) => x.key === key);
   const type = f ? f.type : 'text';
   let v;
@@ -5857,7 +5718,7 @@ function mdFieldHtml(f, entity) {
   }
   if (f.type === 'nodes') {
     const rows = (val || []).map((n, i) => `<div class="md-row">
-      <select data-mdnode-type data-index="${i}">${(mdSpec(S.editKind).nodeTypes || []).map((t) => `<option value="${t.id}"${t.id === n.type ? ' selected' : ''}>${esc(t.zh)}</option>`).join('')}</select>
+      <select data-mdnode-type data-index="${i}">${(mdSpec(S.mdKind).nodeTypes || []).map((t) => `<option value="${t.id}"${t.id === n.type ? ' selected' : ''}>${esc(t.zh)}</option>`).join('')}</select>
       <input type="text" inputmode="decimal" data-num="1" min="1" data-mdnode-count data-index="${i}" value="${Number(n.count) || 1}">
       <button class="btn ghost sm" data-act="md-del-node" data-index="${i}">×</button></div>`).join('');
     return `<div class="field wide"><span>${esc(f.zh)}</span><div class="md-rows">${rows || '<div class="hint muted">还没有节点</div>'}</div>
@@ -6012,13 +5873,13 @@ function renderMdMain(spec, kind) {
 
 async function enterMdView() {
   await ensureMdSchemas();
-  S.editKind = null; S.md = null; S.mdId = null; S.mdDirty = false;
+  S.mdKind = null; S.md = null; S.mdId = null; S.mdDirty = false;
   render();
 }
 
 function renderMdView() {
   const kinds = S.mdSchemas || [];
-  const kind = S.editKind && MD_UI.includes(S.editKind) ? S.editKind : null;
+  const kind = S.mdKind && MD_UI.includes(S.mdKind) ? S.mdKind : null;
   const body = kind
     ? renderMdArea('<button class="btn ghost sm" data-act="md-back">← 返回</button>', kind)
     : '<div class="pane-head"><div><h2>镜牢编辑</h2><p class="muted">'
@@ -6315,15 +6176,6 @@ let pDescTimer = null;
 let bDescTimer = null;
 let pInfoTimer = null;
 let bInfoTimer = null;
-
-function schedulePDesc() { clearTimeout(pDescTimer); pDescTimer = setTimeout(() => flushPDesc().catch((e) => toast(e.message, 'error')), 700); }
-function scheduleBDesc() { clearTimeout(bDescTimer); bDescTimer = setTimeout(() => flushBDesc().catch((e) => toast(e.message, 'error')), 700); }
-function schedulePInfo() { clearTimeout(pInfoTimer); pInfoTimer = setTimeout(() => flushPInfo().catch((e) => toast(e.message, 'error')), 400); }
-let bFieldTimer = null;
-function scheduleBuffFields() {
-  clearTimeout(bFieldTimer);
-  bFieldTimer = setTimeout(() => flushBuffFields().catch((e) => toast(e.message, 'error')), 500);
-}
 
 function readBuffFields() {
   const out = {};
