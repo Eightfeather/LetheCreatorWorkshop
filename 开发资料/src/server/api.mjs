@@ -437,7 +437,7 @@ export function buildApi(ctx) {
 
   'POST /api/personality/passive': async (body) => {
     ensureRoot(state);
-    const res = passiveEdit(state.letheRoot, {
+    const res = await passiveEdit(state.letheRoot, {
       name: String(body.name || ''),
       id: body.id,
       kind: String(body.kind || 'battle'),
@@ -531,7 +531,7 @@ export function buildApi(ctx) {
     /** 编辑即应用：写入变化字段，记录一个撤销步骤 */
     'POST /api/personality/patch': async (body) => {
       const { letheRoot } = need();
-      const result = savePersonality(letheRoot, body);
+      const result = await savePersonality(letheRoot, body);
       const key = `personality:${body.id}`;
       if (result.changed) {
         session.record(body.name, key, `编辑人格 ${body.id}`, result.changes || []);

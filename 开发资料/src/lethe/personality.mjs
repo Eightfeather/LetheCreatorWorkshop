@@ -257,10 +257,27 @@ function setSourceLocked(letheRoot, modName, id, locked) {
   fs.writeFileSync(file, JSON.stringify({ ...prev, sourceLocked: !!locked, at: new Date().toISOString() }, null, 2), 'utf8');
 }
 
-export function savePersonality(letheRoot, { name, id, entity = {}, locale = {}, ignoreLock = false }) {
+export async function savePersonality(letheRoot, { name, id, entity = {}, locale = {}, ignoreLock = false }) {
   const lockMod = cleanName(name, 'Mod 名称');
   if (!ignoreLock && isSourceLocked(letheRoot, lockMod, String(id))) {
     throw new SafetyError('这个人格的源码已被手动修改并锁定：请到「查看源代码」里修改，或删除该人格后重建');
+  }
+  // R1：原版人格默认只读，服务端直接拒绝写入（不依赖前端拦截）
+  {
+    const any = getPersonalityAny(letheRoot, name, id);
+    if (any && any.vanilla) {
+      throw new SafetyError('这个人格属于原版、当前是只读查看；要修改请先点「导出到本 Mod 并编辑」');
+    }
+  }
+  // 文本字段上限（前置校验，避免长文本被静默写入）
+  {
+    const LIMIT = { name: 120, title: 200, oneLineTitle: 200, desc: 2000, acquisitionMethod: 300, skinItemTitle: 200, skinItemDesc: 500 };
+    for (const [k, v] of Object.entries(pick(locale, LOCALE_FIELDS))) {
+      if (typeof v !== 'string') bad('本地化字段必须是字符串');
+      const max = LIMIT[k] || 500;
+      if (v.length > max) bad('「' + k + '」过长：最多 ' + max + ' 字');
+      if (k === 'name' && !v.trim()) bad('人格名字不能为空');
+    }
   }
   const dir = modDirSafe(letheRoot, name);
   let p = readModPayload(dir);
@@ -281,6 +298,35 @@ export function savePersonality(letheRoot, { name, id, entity = {}, locale = {},
   for (const [k, v] of Object.entries(entPatch)) {
     if (!same(found.entity?.[k], v)) entDiff[k] = v;
   }
+  // 引用校验：技能/守备 id 必须存在（原版或本 Mod），外观必须是已知资源
+  {
+    const { skillExistsAnywhere } = await import('./skills.mjs');
+    for (const row of (entPatch.attributeList || [])) {
+      if (!skillExistsAnywhere(letheRoot, row.skillId)) bad('技能 id 不存在：' + row.skillId);
+    }
+    for (const sid of (entPatch.defenseSkillIDList || [])) {
+      if (!skillExistsAnywhere(letheRoot, sid)) bad('守备技能 id 不存在：' + sid);
+    }
+    const app = entPatch.appearance;
+    if (typeof app === 'string' && app && !app.startsWith('!')) {
+      if (!allAppearanceStrings(letheRoot).includes(app)) bad('外观资源名不存在：' + app);
+    }
+  }
+  // 速度互检：同一档 min <= max
+  {
+    const ent = { ...(found.entity || {}), ...entDiff };
+    const mins = ent.minSpeedList || [];
+    const maxs = ent.maxSpeedList || [];
+    for (let i = 0; i < Math.max(mins.length, maxs.length); i++) {
+      const a = Number(mins[i]); const b = Number(maxs[i]);
+      if (Number.isFinite(a) && Number.isFinite(b) && a > b) bad('第 ' + (i + 1) + ' 档最小速度不能大于最大速度');
+    }
+  }
+  // R4：有任何实体改动就刷新 updatedDate（游戏/其它工具用它判断新旧）
+  if (Object.keys(entDiff).length) {
+    const d = new Date();
+    entDiff.updatedDate = Number(String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'));
+  }
   if (Object.keys(entDiff).length) {
     const doc = readJson(join(dir, found.rel), null);
     if (!doc) throw new SafetyError(`无法读取数据文件：${found.rel}`);
@@ -295,7 +341,9 @@ export function savePersonality(letheRoot, { name, id, entity = {}, locale = {},
   const locDiff = {};
   for (const [k, v] of Object.entries(locPatch)) {
     if (typeof v !== 'string') bad('本地化字段必须是字符串');
-    if (v.length > 4000) bad('文本过长（上限 4000 字）');
+    const LIMIT = { name: 120, title: 200, oneLineTitle: 200, desc: 2000, acquisitionMethod: 300, skinItemTitle: 200, skinItemDesc: 500 };
+    const max = LIMIT[k] || 500;
+    if (v.length > max) bad('「' + k + '」过长：最多 ' + max + ' 字');
     if (!locEntry || !same(locEntry[k], v)) locDiff[k] = v;
   }
   if (Object.keys(locDiff).length) {
@@ -619,7 +667,11 @@ export function deletePersonality(letheRoot, name, id) {
 }
 
 /** 被动挂接：kind = battle | supporter；默认写「同步等级 4」档 */
-export function passiveEdit(letheRoot, { name, id, kind = 'battle', op = 'add', passiveId = '', level = 4 }) {
+export async function passiveEdit(letheRoot, { name, id, kind = 'battle', op = 'add', passiveId = '', level = 4 }) {
+  if (op === 'add') {
+    const { passiveExistsAnywhere } = await import('./passives.mjs');
+    if (!passiveExistsAnywhere(letheRoot, passiveId)) throw new SafetyError('被动 id 不存在：' + passiveId);
+  }
   const p = pIdOf(id);
   if (kind !== 'battle' && kind !== 'supporter') bad('被动类型只能是 battle 或 supporter');
   const lv = intIn(Number(level), 1, 4) ? Number(level) : 4;

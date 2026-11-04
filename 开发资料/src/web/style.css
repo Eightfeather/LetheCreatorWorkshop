@@ -1611,3 +1611,7 @@ select option { background: #141110; color: #E8DCC6; }
 .p-main.p-readonly > *:not(.p-ro-banner) { pointer-events: none; opacity: .96; }
 .p-ro-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .p-ro-banner .btn { margin-left: auto; pointer-events: auto; }
+
+/* R1：原版人格只读查看 */
+.p-ro-banner{margin:0 0 10px;padding:9px 12px;border:1px solid #7a3b3b;border-radius:4px;background:#2a1a18;color:#f3d9cf;font-size:13px}
+.p-main.p-readonly > *:not(.p-ro-banner){pointer-events:none;opacity:.85}

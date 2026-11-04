@@ -178,6 +178,8 @@ async function loadVanilla(characterId) {
 async function loadPersonality(name, id) {
   const res = await api(`/api/personality?name=${encodeURIComponent(name)}&id=${encodeURIComponent(id)}`);
   S.personality = res.personality;
+  S.pReadonly = Boolean(S.pForceReadonly);
+  S.pForceReadonly = false;
   S.personalityId = id;
   S.sessionKey = `personality:${id}`;
   S.pSearch = {};
@@ -1150,6 +1152,7 @@ function renderPersonalityDetail() {
   const modEnabled = S.mods.find((m) => m.name === S.selected)?.enabled !== false;
   const name = l.name || String(p.id);
   const vanilla = Boolean(p.vanilla);
+  const ro = Boolean(S.pReadonly);
   const passiveCounts = (st.passives && st.passives.counts) || { battle: 0, supporter: 0 };
   const skillCount = (e.attributeList || []).length;
   const res = S.pSearch || {};
@@ -1169,8 +1172,10 @@ function renderPersonalityDetail() {
       <button class="btn ghost sm" data-act="p-portrait">编辑立绘</button>
       <div class="pp-id">${esc(p.id)}${vanilla ? ' · 原版' : ''}</div>
       <button class="btn ghost sm" data-act="p-back" title="返回人格列表">← 退出</button>
+      ${ro ? '<button class="btn primary sm" data-act="p-export-edit" data-id="' + esc(p.id) + '" title="导出到本 Mod 并编辑">导出到本 Mod 并编辑</button>' : ''}
     </aside>
-    <div class="p-main${locked ? ' p-locked' : ''}">
+    <div class="p-main${locked ? ' p-locked' : ''}${ro ? ' p-readonly' : ''}">
+      ${ro ? '<div class="p-ro-banner">只读查看：这是原版人格，改动不会写入。要修改请点「导出到本 Mod 并编辑」。</div>' : ''}
       <header class="p-head">
         <div class="ph-row ph-row1">
           ${pSinnerLogo(e.characterId)}
@@ -1324,6 +1329,10 @@ async function openPortraitModal() {
 
 async function pPatch(patch) {
   if (!S.personality || !S.selected) return null;
+  if (S.pReadonly) {
+    toast('这个原版人格当前是只读查看；要修改请点「导出到本 Mod 并编辑」', 'warn');
+    return null;
+  }
   const res = await api('/api/personality/patch', {
     method: 'POST',
     body: { name: S.selected, id: S.personalityId, ...patch },
@@ -1897,10 +1906,27 @@ const actions = {
     const id = el.dataset.id;
     modal({
       title: '原版人格',
-      body: `<p class="muted">把原版人格 \`${esc(id)}\` 复制进当前 Mod 后即可编辑；游戏内该原版人格会被本 Mod 覆盖。</p>`,
+      body: `<p class="muted">原版人格 \`${esc(id)}\` 可以只读查看，或导出到当前 Mod 后再编辑。导出后游戏内该原版人格会被本 Mod 覆盖。</p>`,
       footer: `<button class="btn ghost" data-act="close-modal">取消</button>
-        <button class="btn primary" data-act="confirm-vanilla-personality" data-id="${esc(id)}">导出编辑</button>`,
+        <button class="btn" data-act="p-view-vanilla" data-id="${esc(id)}">只读查看</button>
+        <button class="btn primary" data-act="confirm-vanilla-personality" data-id="${esc(id)}">导出到本 Mod 并编辑</button>`,
     });
+  },
+  'p-view-vanilla': async (el) => {
+    closeModal();
+    S.pForceReadonly = true;
+    await loadPersonality(S.selected, el.dataset.id);
+    render();
+    toast('已进入只读查看；要修改请点左侧「导出到本 Mod 并编辑」', 'warn');
+  },
+  'p-export-edit': async (el) => {
+    const res = await api('/api/personality/copy-vanilla', { method: 'POST', body: { name: S.selected, id: el.dataset.id } });
+    toast(`已导出为自定义人格 ${res.personality?.id || el.dataset.id}`, 'ok');
+    await loadPersonalities(S.selected);
+    S.pForceReadonly = false;
+    await loadPersonality(S.selected, res.personality?.id || el.dataset.id);
+    await refreshSession(S.selected);
+    render();
   },
   'confirm-vanilla-personality': async (el) => {
     const res = await api('/api/personality/copy-vanilla', { method: 'POST', body: { name: S.selected, id: el.dataset.id } });
@@ -3347,7 +3373,10 @@ async function saveCurrent() {
   await flushPatch();
   const res = await api('/api/personality/save', { method: 'POST', body: { name: S.selected, id: S.personalityId } });
   S.session = res.session;
+  S.pReadonly = false;
   toast('已保存，撤销历史已清空', 'ok');
+  await loadPersonalities(S.selected);
+  await loadPersonality(S.selected, S.personalityId);
   render();
 }
 
