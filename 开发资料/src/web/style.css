@@ -1615,3 +1615,9 @@ select option { background: #141110; color: #E8DCC6; }
 /* R1：原版人格只读查看 */
 .p-ro-banner{margin:0 0 10px;padding:9px 12px;border:1px solid #7a3b3b;border-radius:4px;background:#2a1a18;color:#f3d9cf;font-size:13px}
 .p-main.p-readonly > *:not(.p-ro-banner){pointer-events:none;opacity:.85}
+
+
+/* v0.9.6：人格页名字补充 / 词条废弃标记 */
+.pi-name { margin-left: 6px; font-size: 12px; color: #C6A15B; }
+.pi-name.muted { color: #8A7C68; }
+.p-taghit.dep { opacity: .62; text-decoration: line-through; }

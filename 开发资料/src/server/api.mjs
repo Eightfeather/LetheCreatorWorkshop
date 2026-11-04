@@ -470,7 +470,20 @@ export function buildApi(ctx) {
     const root = state.letheRoot;
     if (!root) return { ok: true, tables: null };
     const t = i18nTables(root);
-    return { ok: true, tables: { sins: t.sins, skillKeywords: t.skillKeywords, rankLabel: t.rankLabel, unitKeyword: t.unitKeyword, association: t.association } };
+    return {
+      ok: true,
+      tables: {
+        sins: t.sins,
+        skillKeywords: t.skillKeywords,
+        rankLabel: t.rankLabel,
+        unitKeyword: t.unitKeyword,
+        association: t.association,
+        unitUse: t.unitUse || {},
+        assocUse: t.assocUse || {},
+        unitDeprecated: t.unitDeprecated || [],
+        assocDeprecated: t.assocDeprecated || [],
+      },
+    };
   },
 
   'GET /api/personality/stats': (q) => {
@@ -516,7 +529,7 @@ export function buildApi(ctx) {
     return { ok: true, personality: { id: res.id, entity: res.entity, locale: res.locale }, written: res.written };
   },
 
-  'GET /api/personality': (q) => {
+  'GET /api/personality': async (q) => {
       const { letheRoot } = need();
       const one = getPersonalityAny(letheRoot, q.get('name'), q.get('id'));
       const locked = one ? isSourceLocked(letheRoot, q.get('name'), String(q.get('id'))) : false;
@@ -525,7 +538,30 @@ export function buildApi(ctx) {
         err.status = 404;
         throw err;
       }
-      return { ok: true, personality: { ...one, locked } };
+      const skillNames = {};
+      const passiveNames = {};
+      try {
+        const { gameSkillIndex } = await import('../lethe/skills.mjs');
+        const { passiveIndex } = await import('../lethe/passives.mjs');
+        const si = gameSkillIndex(letheRoot);
+        const e0 = (one && one.entity) || {};
+        const ids = [...new Set([...((e0.attributeList || []).map((r) => String(r && r.skillId))), ...(((e0.defenseSkillIDList) || []).map(String))])];
+        for (const sid of ids) {
+          const hit = si.byId && si.byId.get(sid);
+          if (hit && hit.name) skillNames[sid] = hit.name;
+        }
+        const st = personalityStats(letheRoot, q.get('name') || state.selected, q.get('id')) || {};
+        const pids = new Set();
+        for (const g of [...((st.passives && st.passives.battle) || []), ...((st.passives && st.passives.supporter) || [])]) {
+          for (const pid of (g && g.ids) || []) pids.add(String(pid));
+        }
+        const pi = passiveIndex(letheRoot);
+        for (const pid of pids) {
+          const hit = pi.byId && pi.byId.get(pid);
+          if (hit && hit.name) passiveNames[pid] = hit.name;
+        }
+      } catch (e) { /* 名字解析失败不影响主流程 */ }
+      return { ok: true, personality: { ...one, locked, skillNames, passiveNames } };
     },
 
     /** 编辑即应用：写入变化字段，记录一个撤销步骤 */

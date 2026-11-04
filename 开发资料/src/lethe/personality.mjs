@@ -50,10 +50,10 @@ export function normalizePersonalityPatch(entity = {}) {
         if (v.incrementByLevel !== undefined && (!isNum(v.incrementByLevel) || v.incrementByLevel < 0 || v.incrementByLevel > 999)) bad('每级成长必须是 0–999 的数字');
         out[k] = v; break;
       }
-      case 'defCorrection': if (!isNum(v) || v < -50 || v > 50) bad('防御等级修正必须是 -50–50 的数字'); out[k] = v; break;
+      case 'defCorrection': if (!isNum(v) || v < -999 || v > 999) bad('防御修正值必须是 -999 ~ +999 的数字'); out[k] = v; break;
       case 'minSpeedList': case 'maxSpeedList': {
         if (!Array.isArray(v) || v.length < 1 || v.length > 4) bad('速度必须是 1–4 个数字');
-        for (const n of v) if (!isNum(n) || n < 1 || n > 30) bad('速度必须是 1–30 的数字');
+        for (const n of v) if (!isNum(n) || n < 1 || n > 999) bad('速度必须是 1–999 的数字');
         out[k] = v; break;
       }
       case 'uniqueAttribute': if (v === '' || v == null) break; if (!SIN_IDS.includes(v)) bad('罪孽属性只能是 ' + SIN_IDS.join(' / ')); out[k] = v; break;
@@ -338,6 +338,9 @@ export async function savePersonality(letheRoot, { name, id, entity = {}, locale
 
   const locEntry = findLocaleEntry(p.locales.EN?.personality, id);
   const locPatch = pick(locale, LOCALE_FIELDS);
+  /* 称号 / 简介不再使用：保存时强制清空（旧数据也一并清掉） */
+  locPatch.title = '';
+  locPatch.desc = '';
   const locDiff = {};
   for (const [k, v] of Object.entries(locPatch)) {
     if (typeof v !== 'string') bad('本地化字段必须是字符串');

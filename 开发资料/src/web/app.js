@@ -937,6 +937,18 @@ function pSearchBox(id, placeholder, value) {
   return `<input class="p-search" id="${id}" placeholder="${esc(placeholder)}" value="${esc(value || '')}" autocomplete="off">`;
 }
 
+function pSkillNameHtml(id) {
+  const map = (S.personality && S.personality.skillNames) || {};
+  const nm = map[String(id)];
+  return nm ? '<span class="pi-name" title="' + esc(nm) + '">· ' + esc(nm) + '</span>' : '<span class="pi-name muted">· 未登记</span>';
+}
+
+function pPassiveNameHtml(id) {
+  const map = (S.personality && S.personality.passiveNames) || {};
+  const nm = map[String(id)];
+  return nm ? '<span class="pi-name" title="' + esc(nm) + '">· ' + esc(nm) + '</span>' : '';
+}
+
 function pSkillRows(e) {
   const rows = e.attributeList || [];
   const min = Math.max(0, Number(S.pSkillSlots) || 0);
@@ -948,7 +960,7 @@ function pSkillRows(e) {
       continue;
     }
     items.push(`<div class="p-item">
-      <span class="pi-id">${esc(r.skillId)}</span>
+      <span class="pi-id">${esc(r.skillId)}</span>${pSkillNameHtml(r.skillId)}
       <label class="pi-inline">数量 <input class="pi-num" type="number" min="0" max="99" data-skill-num="${i}" value="${esc(r.number ?? 1)}"></label>
       <button class="icon-btn" data-act="p-jump-skill" data-id="${esc(r.skillId)}" title="打开技能编辑">🖊</button>
       <button class="icon-btn rm" data-act="p-skill-rm" data-idx="${i}" title="移除">✕</button>
@@ -968,7 +980,7 @@ function pDefRows(e) {
       continue;
     }
     items.push(`<div class="p-item">
-      <span class="pi-id">${esc(id)}</span>
+      <span class="pi-id">${esc(id)}</span>${pSkillNameHtml(id)}
       <button class="icon-btn" data-act="p-jump-skill" data-id="${esc(id)}" title="打开技能编辑">🖊</button>
       <button class="icon-btn rm" data-act="p-def-rm" data-idx="${i}" title="移除">✕</button>
     </div>`);
@@ -999,7 +1011,6 @@ function pBuffRows(e) {
   const groups = e.initBuffList || [];
   if (!groups.length) return '<div class="p-empty muted">没有初始 Buff</div>';
   return groups.map((g, gi) => `<div class="p-buff-group">
-      <div class="p-buff-head">升阶 ${esc(g.level)}${Number(g.level) === 4 ? ' · 默认' : ''}</div>
       ${(g.list || []).map((b, bi) => `<div class="p-item">
         <span class="pi-id">${esc(b.buff)}</span>
         <label class="pi-inline">强度 <input class="pi-num" type="number" min="0" max="999" data-buff-stack="${gi}:${bi}" value="${esc(b.stack ?? 0)}"></label>
@@ -1011,13 +1022,26 @@ function pBuffRows(e) {
 
 /* 词条三组（文档 17 第 7 条）：可下拉、已有内容进入选项、每组最多 10 行、只保存已注册值 */
 const P_TAG_FIELDS = { unit: 'unitKeywordList', assoc: 'associationList', kw: 'skillKeywordList' };
-const P_TAG_TITLES = { unit: '单位词条', assoc: '阵营词条', kw: '自身户口（技能关键词）' };
+const P_TAG_TITLES = {
+  unit: '单位词条（unitKeywordList）',
+  assoc: '阵营词条（associationList）',
+  kw: '自身户口 / 技能属性（skillKeywordList · 7 种）',
+};
 
 function pTagChoices(kind) {
   const t = pTables();
-  if (kind === 'kw') return (t.skillKeywords || []).map((k) => ({ id: String(k.id), zh: k.zh || k.id }));
+  if (kind === 'kw') return (t.skillKeywords || []).map((k) => ({ id: String(k.id), zh: k.zh || k.id, n: 0, dep: false }));
   const map = kind === 'unit' ? (t.unitKeyword || {}) : (t.association || {});
-  return Object.keys(map).map((id) => ({ id, zh: map[id] || id }));
+  const use = (kind === 'unit' ? t.unitUse : t.assocUse) || {};
+  const dep = new Set((kind === 'unit' ? t.unitDeprecated : t.assocDeprecated) || []);
+  return Object.keys(map)
+    .map((id) => ({ id, zh: map[id] || '', n: Number(use[id]) || 0, dep: dep.has(id) }))
+    .sort((a, b) => (b.n - a.n) || String(a.zh || a.id).localeCompare(String(b.zh || b.id), 'zh'));
+}
+
+function pTagLabel(c) {
+  const name = c.zh || c.id;
+  return c.n ? name + '（' + c.n + '）' : name;
 }
 
 function pTagChips(list, kind) {
@@ -1042,12 +1066,13 @@ function pTagHitsHtml(kind) {
   const list = kind === 'unit' ? (e.unitKeywordList || []) : (e.associationList || []);
   const used = new Set(list.map((x) => String(x || '').trim()).filter(Boolean));
   const q = String((S.pTagQ && S.pTagQ[kind]) || '').trim().toLowerCase();
-  const hits = pTagChoices(kind)
+  const pool = pTagChoices(kind)
     .filter((c) => !used.has(String(c.id)))
-    .filter((c) => !q || String(c.id).toLowerCase().includes(q) || String(c.zh || '').toLowerCase().includes(q))
-    .slice(0, 8);
-  return hits.map((c) => '<button type="button" class="p-taghit" data-act="p-tag-add2" data-kind="' + kind + '" data-id="' + esc(c.id) + '">' + esc(pShort(c.zh || c.id, 12)) + '</button>').join('')
-    || (q ? '<span class="muted">没有匹配</span>' : '');
+    .filter((c) => !q || String(c.id).toLowerCase().includes(q) || String(c.zh || '').toLowerCase().includes(q));
+  const hits = pool.slice(0, 12);
+  const btns = hits.map((c) => '<button type="button" class="p-taghit' + (c.dep ? ' dep' : '') + '" data-act="p-tag-add2" data-kind="' + kind + '" data-id="' + esc(c.id) + '" title="' + esc(c.id) + (c.dep ? ' · 原版已废弃' : '') + '">' + esc(pShort(pTagLabel(c), 16)) + '</button>').join('');
+  const more = pool.length > hits.length ? '<span class="muted">还有 ' + (pool.length - hits.length) + ' 个，继续输入可筛选</span>' : '';
+  return btns + (pool.length ? more : (q ? '<span class="muted">没有匹配（只能选已注册词条）</span>' : ''));
 }
 
 function pRefreshTagHits(kind) {
@@ -1065,7 +1090,7 @@ function pTagSearch(list, kind) {
     .filter((c) => !q || String(c.id).toLowerCase().includes(q) || String(c.zh || '').toLowerCase().includes(q))
     .slice(0, 8);
   return `${pTagChips(cur, kind)}
-    <input class="p-search p-tagq" id="p-tagq-${kind}" data-tagq="${kind}" placeholder="输入${kind === 'unit' ? '单位' : '阵营'}词条名称或 id 搜索" value="${esc((S.pTagQ && S.pTagQ[kind]) || '')}" autocomplete="off" ${cur.length >= 10 ? 'disabled' : ''}>
+    <input class="p-search p-tagq" id="p-tagq-${kind}" data-tagq="${kind}" placeholder="输入${kind === 'unit' ? '单位' : '阵营'}词条名称或 id 搜索（已选 ${cur.length}/10）" value="${esc((S.pTagQ && S.pTagQ[kind]) || '')}" autocomplete="off" ${cur.length >= 10 ? 'disabled' : ''}>
     <span class="p-chips p-taghits" id="p-taghits-${kind}">${hits.map((c) => `<button type="button" class="p-taghit" data-act="p-tag-add2" data-kind="${kind}" data-id="${esc(c.id)}">${esc(pShort(c.zh || c.id, 12))}</button>`).join('') || (q ? '<span class="muted">没有匹配</span>' : '')}</span>`;
 }
 
@@ -1075,7 +1100,7 @@ function pPassiveSection(st, resHtml) {
     ...(((st.passives && st.passives.battle) || []).map((g) => ({ kind: 'battle', g }))),
     ...(((st.passives && st.passives.supporter) || []).map((g) => ({ kind: 'supporter', g }))),
   ];
-  const item = (id, kind, level) => `<span class="p-pid"><span>${esc(id)}</span>
+  const item = (id, kind, level) => `<span class="p-pid"><span>${esc(id)}</span>${pPassiveNameHtml(id)}
       <button class="icon-btn" data-act="p-jump-passive" data-id="${esc(id)}" title="打开被动编辑">🖊</button>
       <button class="icon-btn rm" data-act="p-passive-rm" data-kind="${kind}" data-level="${esc(level)}" data-id="${esc(id)}" title="移除">✕</button>
     </span>`;
@@ -1171,13 +1196,13 @@ function renderPersonalityDetail() {
       <div class="pp-frame">${pPortraitHtml()}</div>
       <button class="btn ghost sm" data-act="p-portrait">编辑立绘</button>
       <div class="pp-id">${esc(p.id)}${vanilla ? ' · 原版' : ''}</div>
-      <button class="btn ghost sm" data-act="p-back" title="返回人格列表">← 退出</button>
       ${ro ? '<button class="btn primary sm" data-act="p-export-edit" data-id="' + esc(p.id) + '" title="导出到本 Mod 并编辑">导出到本 Mod 并编辑</button>' : ''}
     </aside>
     <div class="p-main${locked ? ' p-locked' : ''}${ro ? ' p-readonly' : ''}">
       ${ro ? '<div class="p-ro-banner">只读查看：这是原版人格，改动不会写入。要修改请点「导出到本 Mod 并编辑」。</div>' : ''}
       <header class="p-head">
         <div class="ph-row ph-row1">
+          <button class="btn ghost sm" data-act="p-back" title="返回人格列表">← 退出</button>
           ${pSinnerLogo(e.characterId)}
           <h2>${esc(name)}</h2>
           <span class="spacer"></span>
@@ -1210,7 +1235,7 @@ function renderPersonalityDetail() {
         ${pRow('人格名称', `<input data-field="locale.name" value="${esc(l.name ?? '')}" placeholder="必填">`)}
         ${pRow('稀有度', rankPicker + `<select class="sr-only" data-field="entity.rank" tabindex="-1" aria-hidden="true">${rankList.map((r) => `<option value="${r}" ${Number(e.rank) === r ? 'selected' : ''}>${r}</option>`).join('')}</select>`)}
         <div class="p-grid2">
-          ${pRow('防御修正值', `<input type="text" inputmode="decimal" data-num="1" data-field="entity.defCorrection" value="${esc(e.defCorrection ?? '')}" placeholder=">1.5 致命 · >1 脆弱 · =1 普通 · <1 耐性 · ≤0.5 抵抗">`)}
+          ${pRow('防御修正值', `<input type="text" inputmode="decimal" data-num="1" data-field="entity.defCorrection" value="${esc(e.defCorrection ?? '')}" placeholder="-999 ~ +999">`, '-999 ~ +999')}
           ${pRow('速度区间', `<span class="p-speed-pair"><input type="text" inputmode="decimal" data-num="1" step="1" data-field="entity.speedMin" value="${esc(minSp)}" placeholder="最小"><span class="p-speed-tilde">~</span><input type="text" inputmode="decimal" data-num="1" step="1" data-field="entity.speedMax" value="${esc(maxSp)}" placeholder="最大"></span>`)}
         </div>
         ${pRow('外观资源名', `<input id="p-app" data-field="entity.appearance" value="${esc(e.appearance ?? '')}" placeholder="可手输任意资源名，或点右侧展开挑选" autocomplete="off"><button class="btn ghost sm p-app-toggle" data-act="p-app-toggle">${S.pAppOpen ? '收起' : '展开'}</button>` + pAppPanel(e))}
@@ -1246,12 +1271,12 @@ function renderPersonalityDetail() {
       ${pSection('上场初始 Buff', `<div class="p-search-row">${pSearchBox('p-buff-q', '输入 buff id 搜索（原版 + 全部 Mod）', S.pBuffQ)}</div>
         <div class="p-res-list" id="p-buff-res">${results('buff')}</div>
         ${pBuffRows(e)}
-        <div class="p-hint muted">初始 Buff 统一写入「升阶 4」组；用上面的搜索框添加条目。</div>`)}
+        <div class="p-hint muted">进入战斗时按默认强度生效；用上面的搜索框添加条目。</div>`)}
 
       ${pSection('词条', `
-        ${pRow('单位词条', pTagSearch(e.unitKeywordList, 'unit'))}
-        ${pRow('阵营词条', pTagSearch(e.associationList, 'assoc'))}
-        ${pRow('自身户口（技能关键词）', pKwChips(e.skillKeywordList), '点击切换这 7 个基础关键词')}
+        ${pRow(P_TAG_TITLES.unit, pTagSearch(e.unitKeywordList, 'unit'), '只能选已注册词条')}
+        ${pRow(P_TAG_TITLES.assoc, pTagSearch(e.associationList, 'assoc'), '只能选已注册词条')}
+        ${pRow(P_TAG_TITLES.kw, pKwChips(e.skillKeywordList), '点击切换这 7 个基础属性')}
       `)}
 
       
@@ -2068,6 +2093,8 @@ const actions = {
     await pPatch({ entity: { [field]: list } });
     if (S.pTagQ) S.pTagQ[kind] = '';
     render();
+    const box = document.getElementById('p-tagq-' + kind);
+    if (box) box.focus();
   },
   'p-tag-rm2': async (el) => {
     const kind = el.dataset.kind;
