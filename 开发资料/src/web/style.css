@@ -1638,3 +1638,22 @@ select option { background: #141110; color: #E8DCC6; }
 .ps-tab { background:transparent; border:1px solid var(--line, #2a231c); color:#A79780; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12.5px; }
 .ps-tab.on { color:#F7E7C4; border-color:var(--gold, #C6A15B); background:rgba(198,161,91,.10); }
 .ps-path { margin-left:auto; font-size:11.5px; }
+
+
+/* ===== v0.9.8：Mod 拖动排序 / 永久删除冷静期 / 加载条 ===== */
+body.mod-reordering { cursor: grabbing; }
+.panel.list .item { user-select: none; }
+.panel.list .item.dragging { opacity: .55; transform: scale(.99); }
+.panel.list .item.drop-before { box-shadow: inset 0 3px 0 0 var(--gold); }
+.panel.list .item.drop-after { box-shadow: inset 0 -3px 0 0 var(--gold); }
+.btn.ghosted { background: #2a2320; color: #8f8177; border-color: #3a3129; }
+.btn.ghosted:hover { color: #e3c07e; border-color: #6f5a33; }
+.p-loadbar { margin: 10px 0 2px; height: 4px; background: rgba(255,255,255,.06); overflow: hidden; border-radius: 2px; }
+.p-loadbar > i { display: block; height: 100%; width: 34%; background: linear-gradient(90deg, transparent, var(--gold), transparent); animation: p-loadbar 1.1s ease-in-out infinite; }
+@keyframes p-loadbar { 0% { transform: translateX(-120%); } 100% { transform: translateX(360%); } }
+
+
+/* ===== v0.9.8：模块编辑独占一屏 ===== */
+.layout.edit.module-only { grid-template-columns: minmax(0, 1fr); }
+.layout.edit.module-only .edit-pane { width: 100%; }
+.tag.ok { border-color: #4a6b4a; color: #9fc7a0; }

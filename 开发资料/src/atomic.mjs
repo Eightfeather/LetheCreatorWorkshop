@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { markEntity, recordManifest } from './lethe/mark.mjs';
 import { basename, dirname, join, sep } from 'node:path';
 import { MAX_FILE_BYTES } from './safety.mjs';
 
@@ -89,8 +90,29 @@ export function writeFilesTransactional({ modDir, files, root, mod, backup = tru
   const staged = [];
   const backups = [];
 
-  for (const f of files) {
+  const manifestHits = [];
+  for (let f of files) {
     const rel = String(f.rel).split('/').join(sep);
+    const relPosix = String(f.rel).split('\\').join('/');
+    const m = relPosix.match(/^custom_limbus_data\/(personality|skill|passive|buff)\/(.+)\.json$/);
+    if (m && f.content !== null && typeof f.content === 'string') {
+      try {
+        const parsed = JSON.parse(f.content);
+        const arr = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.list) ? parsed.list : null);
+        if (arr && arr.length) {
+          let touched = false;
+          for (const ent of arr) {
+            if (!ent || typeof ent !== 'object' || ent.id == null) continue;
+            markEntity(ent, { kind: m[1], mod: mod || '', id: ent.id });
+            manifestHits.push({ kind: m[1], id: String(ent.id), rel: relPosix, name: ent.name != null ? ent.name : '' });
+            touched = true;
+          }
+          if (touched) {
+            f = Object.assign({}, f, { content: JSON.stringify(Array.isArray(parsed) ? arr : Object.assign({}, parsed, { list: arr }), null, 2) });
+          }
+        }
+      } catch { /* 非严格 JSON：原样写入 */ }
+    }
     const abs = join(modDir, rel);
     let before = null;
     try { if (fs.existsSync(abs)) before = fs.readFileSync(abs); } catch { before = null; }
@@ -134,6 +156,9 @@ export function writeFilesTransactional({ modDir, files, root, mod, backup = tru
     }
     for (const s of staged) { if (s.tmp) { try { fs.rmSync(s.tmp, { force: true }); } catch { /* ignore */ } } }
     throw err;
+  }
+  if (manifestHits.length) {
+    try { recordManifest(root, manifestHits, mod || ''); } catch { /* 清单失败不影响写盘 */ }
   }
   pruneRollback(root);
   return {

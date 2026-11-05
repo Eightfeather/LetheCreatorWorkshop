@@ -4,8 +4,9 @@ import { ARG_COUNTS } from '../knowledge/arg-counts.mjs';
 import { dirname, join } from 'node:path';
 import { APP_ROOT, USER_DATA_DIR } from '../paths.mjs';
 import { configPath, rememberRoot, saveConfig } from '../config.mjs';
+import { SafetyError } from '../safety.mjs';
 import { locate, scanStats } from '../locate.mjs';
-import { createMod, disableMod, dirOf, enableMod, listMods, modDir, readModPayload, resolveModDir } from '../lethe/mods.mjs';
+import { createMod, disableMod, dirOf, enableMod, listMods, modDir, modDirSafe, readModPayload, resolveModDir, saveModOrder, deleteModEverywhere } from '../lethe/mods.mjs';
 import { listDlls, setDllEnabled } from '../lethe/dlls.mjs';
 import { appearanceOptions, appearanceCatalog, writePortrait, deletePersonality, passiveEdit, personalitySource, savePersonalitySource, isSourceLocked,  createPersonality, getPersonality, getPersonalityAny, listPersonalities, materializeVanilla, personalityIdTaken, personalityStats, savePersonality} from '../lethe/personality.mjs';
 import { i18nTables } from '../knowledge/personality-i18n.mjs';
@@ -117,6 +118,49 @@ function moduleCodeIndex(letheRoot) {
   return map;
 }
 
+/** 统计每个模块被多少处技能/被动/Buff 引用（按规范化脚本串精确匹配） */
+function moduleUsageCounts(letheRoot) {
+  let modules = [];
+  try { modules = listModules(letheRoot); } catch { modules = []; }
+  const targets = modules.map((m) => {
+    let code = '';
+    try { code = canonicalCode(compileProgram(m.program)); } catch { code = ''; }
+    return { id: m.id, code };
+  }).filter((t) => t.code);
+  const out = {};
+  if (!targets.length) return out;
+  const mods = listMods(letheRoot).filter((m) => m.enabled);
+  for (const mod of mods) {
+    let dir = null;
+    try { dir = modDirSafe(letheRoot, mod.name); } catch { dir = null; }
+    if (!dir) continue;
+    let payload = null;
+    try { payload = readModPayload(dir); } catch { payload = null; }
+    if (!payload) continue;
+    const scripts = [];
+    const push = (v) => { if (typeof v === 'string' && v.trim()) scripts.push(v); };
+    for (const cat of ['skill', 'passive', 'buff']) {
+      for (const row of (payload.data[cat] || [])) {
+        const ent = row.entity || {};
+        for (const sd of (ent.skillData || [])) {
+          for (const a of (sd.abilityScriptList || [])) push(a && a.scriptName);
+          for (const c of (sd.coinList || [])) for (const a of (c.abilityScriptList || [])) push(a && a.scriptName);
+        }
+        for (const s of (ent.requireIDList || [])) push(s);
+        for (const l of (ent.list || [])) push(l && l.ability);
+      }
+    }
+    if (!scripts.length) continue;
+    const canon = scripts.map((s) => { try { return canonicalCode(String(s)); } catch { return String(s); } });
+    for (const t of targets) {
+      let n = 0;
+      for (const c of canon) if (c === t.code) n += 1;
+      if (n) out[t.id] = (out[t.id] || 0) + n;
+    }
+  }
+  return out;
+}
+
 export function buildApi(ctx) {
   const { state, log, session, autosave } = ctx;
   const need = () => {
@@ -207,6 +251,19 @@ export function buildApi(ctx) {
       markRunning(state.letheRoot);
       state.config = rememberRoot(result.best.gameRoot || result.best.letheRoot);
       return { ok: true, ...result.best };
+    },
+
+    'POST /api/mods/order': (body) => {
+      const { letheRoot } = need();
+      const order = saveModOrder(letheRoot, body && body.order);
+      return { ok: true, order, mods: listMods(letheRoot) };
+    },
+
+    'POST /api/mod/delete': (body) => {
+      const { letheRoot } = need();
+      if (!body || body.confirm !== 'DELETE') throw new SafetyError('删除需要确认：请在弹窗里点「永久删除」');
+      const res = deleteModEverywhere(letheRoot, body.name);
+      return { ok: true, ...res, mods: listMods(letheRoot) };
     },
 
     'POST /api/config': async (body) => {
@@ -791,7 +848,11 @@ export function buildApi(ctx) {
       return { ok: true, modules: listModules(letheRoot) };
     },
 
-    'GET /api/module': (q) => {
+    'GET /api/module/usage': () => {
+    const letheRoot = state.letheRoot;
+    return { ok: true, usage: moduleUsageCounts(letheRoot), scannedAt: new Date().toISOString() };
+  },
+  'GET /api/module': (q) => {
       const { letheRoot } = need();
       const one = getModule(letheRoot, q.get('id'));
       if (!one) { const e = new Error('找不到这个模块'); e.status = 404; throw e; }

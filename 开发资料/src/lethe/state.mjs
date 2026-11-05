@@ -24,6 +24,7 @@ export function readState(letheRoot) {
     disabledMods: {},
     disabledDlls: {},
     editorName: DEFAULT_EDITOR_NAME,
+    modOrder: [],
     ...(st || {}),
   };
 }

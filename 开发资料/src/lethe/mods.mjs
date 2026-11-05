@@ -3,7 +3,7 @@ import { basename, join } from 'node:path';
 import { readJson, stamp } from '../atomic.mjs';
 import { cleanName, isInside, SafetyError } from '../safety.mjs';
 import { ensureLayout } from './layout.mjs';
-import { disabledModsDir, readState, updateState } from './state.mjs';
+import { disabledModsDir, readState, updateState, userBackupsDir, autoBackupsDir, journalDir, workbenchDir } from './state.mjs';
 
 export function modsRoot(letheRoot) { return join(letheRoot, 'mods'); }
 export function modDir(letheRoot, name) { return join(modsRoot(letheRoot), cleanName(name, 'Mod 名称')); }
@@ -195,7 +195,57 @@ export function listMods(letheRoot) {
     const meta = state.disabledMods[d.name] || {};
     out.push(readModSummary(join(disabledDir, d.name), { enabled: false, disabledAt: meta.at || null }));
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+  const order = Array.isArray(state.modOrder) ? state.modOrder : [];
+  const rank = (n) => { const i = order.indexOf(n); return i === -1 ? Number.MAX_SAFE_INTEGER : i; };
+  return out.sort((a, b) => {
+    const ra = rank(a.name); const rb = rank(b.name);
+    if (ra !== rb) return ra - rb;
+    return a.name.localeCompare(b.name, 'zh-Hans-CN');
+  });
+}
+
+/** 保存「Mod 显示顺序」（只影响编辑器内展示，不改变游戏加载顺序） */
+export function saveModOrder(letheRoot, order) {
+  const known = new Set(listMods(letheRoot).map((m) => m.name));
+  const clean = [];
+  for (const raw of Array.isArray(order) ? order : []) {
+    const n = String(raw || '').trim();
+    if (known.has(n) && !clean.includes(n)) clean.push(n);
+  }
+  updateState(letheRoot, (s) => ({ ...s, modOrder: clean }));
+  return clean;
+}
+
+/**
+ * 永久删除一个 Mod：Mod 本体（无论启用/禁用）+ LCW 里与它相关的所有数据。
+ * 返回被删除的绝对路径列表（供 UI 展示）。
+ */
+export function deleteModEverywhere(letheRoot, name) {
+  const found = resolveModDir(letheRoot, name);
+  const modName = found.name;
+  const removed = [];
+  const rm = (p) => { if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); removed.push(p); } };
+
+  rm(found.dir);
+
+  for (const dir of [userBackupsDir(letheRoot), autoBackupsDir(letheRoot), journalDir(letheRoot)]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (d.name === modName || d.name.startsWith(modName + '_')) rm(join(dir, d.name));
+    }
+  }
+  const projects = join(workbenchDir(letheRoot), 'projects');
+  for (const sub2 of ['modules', 'personalities', 'skills', 'passives', 'buffs', 'enemy', 'md']) {
+    rm(join(projects, sub2, modName));
+  }
+  updateState(letheRoot, (s) => {
+    const next = { ...s };
+    if (next.disabledMods) { next.disabledMods = { ...next.disabledMods }; delete next.disabledMods[modName]; }
+    if (Array.isArray(next.modOrder)) next.modOrder = next.modOrder.filter((n) => n !== modName);
+    if (next.autoSave) { next.autoSave = { ...next.autoSave }; delete next.autoSave[modName]; }
+    return next;
+  });
+  return { name: modName, removed };
 }
 
 export function createMod(letheRoot, { name, folder }) {

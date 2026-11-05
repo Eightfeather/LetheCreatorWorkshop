@@ -18,7 +18,7 @@ import { findLocaleEntry, modDirSafe, readModPayload } from './mods.mjs';
 import { metaRoot } from './meta.mjs';
 
 const MD_VERSION = 2;
-const LOCALES = ['EN', 'CN'];
+const LOCALES = ['EN']; // v0.9.8：游戏默认只读 EN，CN 一律不再写
 
 const F = (key, zh, type, extra = {}) => ({ key, zh, type, ...extra });
 

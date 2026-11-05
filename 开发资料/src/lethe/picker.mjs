@@ -83,7 +83,7 @@ function vanillaEntities(letheRoot, cats) {
 function vanillaLocale(letheRoot, localeCat) {
   const out = {};
   if (!localeCat) return out;
-  for (const lang of ['EN', 'CN']) {
+  for (const lang of ['EN']) {
     const doc = readJson(join(letheRoot, 'dumpedData', 'limbus_locale', lang, `${localeCat}.json`));
     if (!doc || typeof doc !== 'object') continue;
     for (const [id, rec] of Object.entries(doc)) {
@@ -109,7 +109,7 @@ function modEntities(letheRoot, cats, localeCat) {
     const modDir = join(modsRoot, mod);
     const names = { EN: {}, CN: {} };
     if (localeCat) {
-      for (const lang of ['EN', 'CN']) {
+      for (const lang of ['EN']) {
         for (const file of listJsonFiles(join(modDir, 'custom_limbus_locale', lang, localeCat))) {
           const doc = readJson(file);
           if (doc && typeof doc === 'object') Object.assign(names[lang], doc);

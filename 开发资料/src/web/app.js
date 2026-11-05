@@ -581,7 +581,9 @@ function renderModDetail() {
   <div class="detail-actions">
     <button class="btn ok" data-act="enable-mod" ${d.enabled ? 'disabled' : ''}>启用</button>
     <button class="btn warn" data-act="backup-mod">备份</button>
-    <button class="btn danger" data-act="disable-mod" ${d.enabled ? '' : 'disabled'}>禁用</button>
+    ${d.enabled
+      ? '<button class="btn danger" data-act="disable-mod">禁用</button>'
+      : '<button class="btn danger ghosted" data-act="arm-delete" title="已禁用 · 连续点 3 次可永久删除这个 Mod">禁用 · 连点 3 次删除</button>'}
   </div>`;
 }
 
@@ -659,18 +661,24 @@ const modRowMini = (m) => `<button class="item mini ${S.selected === m.name ? 'a
 </button>`;
 
 function renderEdit() {
+  // v0.9.8：模块是全局资源，进「模块编辑」时不需要左侧 Mod 列表
+  if (S.editKind === 'module') {
+    return `<div class="layout edit module-only">
+      <section class="panel edit-pane">
+        ${renderKindTabs() + renderKindArea()}
+      </section>
+    </div>`;
+  }
   // 完整列表与收起窄条两层常驻，切换时只换类名：完整层向左滑出、窄条随后滑入（见 style.css v0.5「滑入滑出」）
   return `<div class="layout edit ${S.listCollapsed ? 'list-collapsed' : ''}">
     <section class="panel list-panel">
       <div class="lp-full">
         <div class="panel-head">MOD 列表 <span class="count">${S.mods.length}</span><button class="fold-btn" data-act="toggle-modlist" title="收起 Mod 列表">«</button></div>
         <div class="panel-body list">${S.mods.map(modRow).join('') || '<div class="list-empty">mods 目录是空的</div>'}</div>
-        <div class="panel-foot"><button class="btn ghost block" data-act="create-mod">＋ 创建 Mod</button></div>
       </div>
       <div class="lp-mini">
         <div class="panel-head"><button class="fold-btn" data-act="toggle-modlist" title="展开 Mod 列表">»</button></div>
         <div class="panel-body list">${S.mods.map(modRowMini).join('')}</div>
-        <div class="panel-foot"><button class="btn ghost block" data-act="create-mod" title="创建 Mod">＋</button></div>
       </div>
     </section>
     <section class="panel edit-pane">
@@ -709,6 +717,12 @@ function renderKindArea() {
     return `<div class="pane-head">${back}<h2>维修中</h2></div><div class="empty-state"><p>该功能正在维修</p></div>`;
   }
   if (S.personality) return renderPersonalityDetail();
+  if (S.pLoading) {
+    return '<div class="pane-head"><h2>载入人格…</h2></div>'
+      + '<div class="panel" style="margin:12px"><div class="panel-body">'
+      + '<div class="hint muted">正在读取人格数据、脚本与本地化，请稍等…</div>'
+      + '<div class="p-loadbar"><i></i></div></div></div>';
+  }
   return `${renderSinnerArea()}`;
 }
 
@@ -1584,6 +1598,10 @@ function openSettings() {
         <button class="btn ghost sm" data-act="locate-quick">自动定位</button>
         <button class="btn ghost sm" data-act="locate-deep">深度扫描磁盘</button>
       </div>
+      <div class="grid-2" style="margin-top:10px">
+        <label class="field check"><input type="checkbox" id="set-delguard-on" ${deleteGuard().enabled ? 'checked' : ''}><span>永久删除前显示冷静倒计时</span></label>
+        <label class="field"><span>冷静时长（秒，0–60）</span><input type="text" inputmode="decimal" data-num="1" id="set-delguard-sec" value="${String(deleteGuard().seconds)}"></label>
+      </div>
       <div class="hint muted">当前 Lethe：${esc(st.letheRoot || '（未定位）')}<br>配置文件：${esc(st.configPath || '')}</div>`,
     footer: `<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="save-settings">保存设置</button>`,
   });
@@ -1606,11 +1624,9 @@ function openCreatePersonality() {
     title: '新建人格',
     body: `<div class="hint muted">罪人：${esc(sinner?.name || '未选择')} · Mod：${esc(S.selected || '')}</div>
       <label class="field"><span>人格名称（必填）</span><input id="np-name" placeholder="例如：测试人格"></label>
-       <label class="field"><span>称号</span><input id="np-title" placeholder="称号"></label>
       <label class="field"><span>人格 id（必填，不得与任何单位重复）</span><input id="np-id" placeholder="例如：10199"><span class="p-hint" id="np-id-hint"></span></label>
       <div class="grid-2">
       </div>
-      <label class="field"><span>简介</span><textarea id="np-desc" rows="3"></textarea></label>
       <div class="hint muted">如果这个 id 属于原版人格，请回上一页从「原版人格列表」里选该人格（那样会把原版数据完整复制过来，并覆盖原版 id）。</div>`,
     footer: `<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="submit-create-personality">创建</button>`,
   });
@@ -1732,7 +1748,7 @@ const actions = {
     S.pAppOpen = false;
     if (!S.personality) { render(); return; }
     await pPatch({ entity: { appearance: v } });
-    await loadPersonality();
+    await loadPersonality(S.selected, S.personalityId);
     toast('已填入外观资源名', 'ok');
     render();
   },
@@ -2194,8 +2210,17 @@ const actions = {
     } catch (err) { toast('这个被动不在当前 Mod 里：' + id, 'warn'); }
   },
   'open-personality': async (el) => {
-    await loadPersonality(S.selected, el.dataset.id);
-    render();
+    const id = el.dataset.id;
+    S.pLoading = true; S.personalityId = id; S.personality = null; render();
+    try {
+      await loadPersonality(S.selected, id);
+    } catch (err) {
+      toast(err && err.message ? err.message : '打开人格失败', 'error');
+      S.personalityId = null;
+    } finally {
+      S.pLoading = false;
+      render();
+    }
   },
   'create-personality': () => openCreatePersonality(),
   'submit-create-mod': async () => {
@@ -2225,8 +2250,7 @@ const actions = {
       name,
       characterId: S.sinner,
       displayName,
-      title: $('#np-title')?.value?.trim() || '',
-      desc: $('#np-desc')?.value?.trim() || '',
+
       id,
     };
     const res = await api('/api/personality/create', { method: 'POST', body });
@@ -2255,6 +2279,9 @@ const actions = {
   'search-skill': (el) => { S.skillSearch = el.value; render(); refocus(el.id, el.value.length); },
   'search-module': (el) => { S.moduleSearch = el.value; render(); refocus(el.id, el.value.length); },
   'save-settings': async () => {
+    const dgOn = document.getElementById('set-delguard-on');
+    const dgSec = document.getElementById('set-delguard-sec');
+    if (dgOn || dgSec) saveDeleteGuard({ enabled: dgOn ? dgOn.checked : true, seconds: dgSec ? dgSec.value : 5 });
     const editorName = $('#set-editor')?.value || '但丁';
     const theme = $('#set-theme')?.value || 'dark';
     const res = await api('/api/config', { method: 'POST', body: { editorName, theme } });
@@ -3649,6 +3676,10 @@ async function loadModules(force = false) {
   const res = await api('/api/modules');
   S.modules = res.modules || [];
   S.modulesLoaded = true;
+  try {
+    const u = await api('/api/module/usage');
+    S.moduleUsage = u.usage || {};
+  } catch { S.moduleUsage = {}; }
 }
 
 async function loadPassiveList(name = S.selected) {
@@ -3785,8 +3816,9 @@ function renderModuleArea(back) {
     + '<span class="mod-name">' + esc(m.name || m.id) + '</span>'
     + '<span class="mod-meta"><span class="tag">' + esc(scopeLabel(m.scope)) + '</span>'
     + (m.test ? '<span class="tag warn">测试</span>' : '')
-    + '<span class="muted">' + (m.blockCount || 0) + ' 块</span></span>'
-    + '</button>'
+    + '<span class="muted">' + (m.blockCount || 0) + ' 块</span>'
+    + (S.moduleUsage && S.moduleUsage[m.id] ? '<span class="tag ok" title="被技能/被动/Buff 引用">被引用 ' + S.moduleUsage[m.id] + '</span>' : '')
+    + '</span></button>'
     + '<button class="mod-gear" data-act="mb-props" data-id="' + esc(m.id) + '" title="模块信息 / 删除">⚙</button>'
     + '</div>').join('');
   const count = (S.modules || []).length;
@@ -5955,7 +5987,7 @@ function renderMdMain(spec, kind) {
     + '</div>'
     + `<label class="field"><span>描述（EN）</span><textarea id="md-desc" rows="3">${esc(loc.desc || '')}</textarea></label>`
     + `<label class="field"><span>描述（CN）</span><textarea id="md-desc-zh" rows="2" placeholder="留空＝与 EN 相同">${esc(loc.descZh || '')}</textarea></label>`
-    + `<div class="hint muted">${spec.localeCat === null ? '这张表不写 locale：名称/描述只留在编辑器草稿里，游戏里按 id 引用。' : '名称与描述会写进 Mod 的 locale：custom_limbus_locale/EN 与 /CN 各一份（CN 留空则与 EN 相同）。'}</div></div>`
+    + `<div class="hint muted">${spec.localeCat === null ? '这张表不写 locale：名称/描述只留在编辑器草稿里，游戏里按 id 引用。' : '名称与描述只写 custom_limbus_locale/EN（游戏默认只加载 EN）。'}</div></div>`
     + `<div class="editor-card"><div class="col-title">${esc(spec.zh)}字段</div><div class="grid-2">${fields}</div>`
     + '<div class="hint muted">字段表在服务端 lethe/mdtables.mjs 的 MD_KINDS 里；游戏侧字段名一旦确认，只改那一处即可。</div></div>'
     + '</div></section>';
@@ -6846,3 +6878,150 @@ document.addEventListener('change', (e) => {
   if (!Array.isArray(st.conds) || !st.conds.length) st.conds = [{ left: null, op: '>', right: null }];
   render();
 });
+
+/* ===================== v0.9.8：Mod 拖动排序 / 永久删除 / 冷静期 ===================== */
+let modDragEndAt = 0;
+
+/** 永久删除的冷静期设置（编辑器本地，存 localStorage） */
+function deleteGuard() {
+  var cfg = null;
+  try { cfg = JSON.parse(localStorage.getItem('lcw.deleteGuard') || 'null'); } catch (e) { cfg = null; }
+  var enabled = !cfg || cfg.enabled !== false;
+  var seconds = cfg && Number.isFinite(Number(cfg.seconds)) ? Number(cfg.seconds) : 5;
+  seconds = Math.max(0, Math.min(60, Math.round(seconds)));
+  return { enabled: enabled, seconds: seconds };
+}
+
+function saveDeleteGuard(cfg) {
+  var next = { enabled: Boolean(cfg.enabled), seconds: Math.max(0, Math.min(60, Math.round(Number(cfg.seconds) || 0))) };
+  localStorage.setItem('lcw.deleteGuard', JSON.stringify(next));
+  return next;
+}
+
+/* ---- Mod 列表拖动排序（只改编辑器显示顺序，写进 LCW/state.json） ---- */
+function bindModDrag() {
+  var drag = null;
+  function itemsOf(list) { return Array.prototype.slice.call(list.querySelectorAll('.item[data-act="select-mod"]')); }
+  document.addEventListener('mousedown', function (e) {
+    if (S.view !== 'mods' && S.view !== 'edit') return;
+    var it = e.target && e.target.closest ? e.target.closest('.panel.list .item[data-act="select-mod"]') : null;
+    if (!it) return;
+    drag = { el: it, name: it.dataset.name, y0: e.clientY, started: false, list: it.parentElement };
+  }, true);
+  document.addEventListener('mousemove', function (e) {
+    if (!drag) return;
+    if (!drag.started && Math.abs(e.clientY - drag.y0) < 6) return;
+    if (!drag.started) {
+      drag.started = true;
+      drag.el.classList.add('dragging');
+      document.body.classList.add('mod-reordering');
+    }
+    e.preventDefault();
+    var others = itemsOf(drag.list).filter(function (x) { return x !== drag.el; });
+    others.forEach(function (x) { x.classList.remove('drop-before', 'drop-after'); });
+    var placed = false;
+    for (var i = 0; i < others.length; i += 1) {
+      var r = others[i].getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) { others[i].classList.add('drop-before'); placed = true; break; }
+    }
+    if (!placed && others.length) others[others.length - 1].classList.add('drop-after');
+  }, true);
+  document.addEventListener('mouseup', function () {
+    if (!drag) return;
+    var d = drag; drag = null;
+    document.body.classList.remove('mod-reordering');
+    d.el.classList.remove('dragging');
+    if (!d.started) return;
+    modDragEndAt = Date.now();
+    var others = itemsOf(d.list).filter(function (x) { return x !== d.el; });
+    var beforeEl = others.filter(function (x) { return x.classList.contains('drop-before'); })[0] || null;
+    var afterEl = others.filter(function (x) { return x.classList.contains('drop-after'); })[0] || null;
+    others.forEach(function (x) { x.classList.remove('drop-before', 'drop-after'); });
+    var names = others.map(function (x) { return x.dataset.name; });
+    var idx = names.length;
+    if (beforeEl) idx = Math.max(0, names.indexOf(beforeEl.dataset.name));
+    else if (afterEl) idx = Math.max(0, names.indexOf(afterEl.dataset.name) + 1);
+    names.splice(idx, 0, d.name);
+    api('/api/mods/order', { method: 'POST', body: { order: names } })
+      .then(function (res) {
+        if (res && Array.isArray(res.mods)) S.mods = res.mods;
+        return refreshModsAndDetail();
+      })
+      .then(function () { render(); toast('已调整显示顺序'); })
+      .catch(function (err) { toast(err && err.message ? err.message : '保存顺序失败', 'error'); });
+  }, true);
+}
+
+/** 连点已经灰掉的「禁用」3 次 → 永久删除确认 */
+function armDelete(name) {
+  var now = Date.now();
+  var st = (S.deleteArm && S.deleteArm.name === name && now - S.deleteArm.at < 2500) ? S.deleteArm : { name: name, n: 0, at: now };
+  st.n += 1; st.at = now;
+  S.deleteArm = st;
+  if (st.n < 3) {
+    toast('再点 ' + (3 - st.n) + ' 次可永久删除这个 Mod（' + name + '）', 'warn');
+    return;
+  }
+  S.deleteArm = null;
+  openDeleteModModal(name);
+}
+
+function openDeleteModModal(name) {
+  var g = deleteGuard();
+  var lines = [
+    'Mod 本体目录（mods 或 LCW/disabled 下的 ' + name + '）',
+    'LCW/backups/用户保存 里以 ' + name + ' 开头的全部备份',
+    'LCW/backups/自动保存/' + name,
+    'LCW/journal/' + name + '（操作流水）',
+    'LCW/projects/{modules,personalities,skills,passives,buffs}/' + name
+  ];
+  modal({
+    title: '永久删除 Mod',
+    body: '<p><strong>这会永久删除「' + esc(name) + '」在本地的一切数据，无法撤销。</strong></p>'
+      + '<div class="person-list">' + lines.map(function (t) { return '<div class="check-row"><span class="kw-bad">✕</span><small>' + esc(t) + '</small></div>'; }).join('') + '</div>'
+      + (g.enabled
+        ? '<div class="hint muted" id="del-countdown">为防误删，删除按钮将在 ' + g.seconds + ' 秒后开放。</div>'
+        : '<div class="hint muted">冷静期已在设置中关闭。</div>'),
+    footer: '<button class="btn ghost" data-act="close-modal">取消</button><button class="btn danger" data-act="confirm-delete-mod" data-name="' + esc(name) + '" disabled>永久删除</button>'
+  });
+  if (!g.enabled || g.seconds <= 0) { enableDeleteNow(); return; }
+  var left = g.seconds;
+  var timer = setInterval(function () {
+    left -= 1;
+    var cd = document.getElementById('del-countdown');
+    if (cd) cd.textContent = left > 0 ? ('为防误删，删除按钮将在 ' + left + ' 秒后开放。') : '现在可以点了。';
+    if (left <= 0) { clearInterval(timer); enableDeleteNow(); }
+  }, 1000);
+}
+
+function enableDeleteNow() {
+  var btn = document.querySelector('[data-act="confirm-delete-mod"]');
+  if (btn) { btn.disabled = false; btn.textContent = '永久删除'; }
+}
+
+Object.assign(actions, {
+  'arm-delete': function (el) { armDelete(el.dataset.name || S.selected); },
+  'confirm-delete-mod': async function (el) {
+    var name = el.dataset.name;
+    try {
+      var res = await api('/api/mod/delete', { method: 'POST', body: { name: name, confirm: 'DELETE' } });
+      closeModal();
+      toast('已永久删除：' + name + '（' + ((res && res.removed) || []).length + ' 个路径）', 'ok');
+      if (S.selected === name) { S.selected = null; S.modDetail = null; }
+      await loadMods();
+      await refreshModsAndDetail();
+      render();
+    } catch (err) { toast(err && err.message ? err.message : '删除失败', 'error'); }
+  },
+  'save-delete-guard': function () {
+    var on = document.getElementById('set-delguard-on');
+    var sec = document.getElementById('set-delguard-sec');
+    var cfg = saveDeleteGuard({ enabled: on ? on.checked : true, seconds: sec ? sec.value : 5 });
+    toast('已保存：冷静期' + (cfg.enabled ? cfg.seconds + ' 秒' : '关闭'));
+  }
+});
+
+bindModDrag();
+document.addEventListener('click', function (e) {
+  if (modDragEndAt && Date.now() - modDragEndAt < 320) { e.stopPropagation(); e.preventDefault(); }
+}, true);
