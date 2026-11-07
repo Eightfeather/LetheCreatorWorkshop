@@ -929,34 +929,42 @@ function pLvStats(entity) {
   const base = Number((e.hp || {}).defaultStat) || 0;
   const inc = Number((e.hp || {}).incrementByLevel) || 0;
   const lv = pLvNow();
-  const hp = base ? Math.max(1, Math.round(base + inc * (lv - 1))) : 0;
-  const max = base ? Math.max(1, Math.round(base + inc * (P_LV_MAX - 1))) : 0;
-  return { lv, hp, max };
+  // cap = 该等级的血量上限（Limbus 的 HP 即“该等级上限”），cap100 = 满级上限
+  const cap = base ? Math.max(1, Math.round(base + inc * (lv - 1))) : 0;
+  const cap100 = base ? Math.max(1, Math.round(base + inc * (P_LV_MAX - 1))) : 0;
+  return { lv, cap, cap100, hp: cap, max: cap100 };
 }
 function pLvDomUpdate() {
   const st = pLvStats();
   const lv = document.querySelector('.p-lv');
   if (lv) lv.textContent = 'LV.' + st.lv;
   const tot = document.querySelector('.pb-total');
-  if (tot) tot.textContent = '♥' + st.hp;
+  if (tot) { tot.textContent = '♥' + st.cap; tot.title = 'LV.' + st.lv + ' 血量上限'; }
   const bar = document.querySelector('.p-bar');
-  if (bar) bar.title = 'LV.' + st.lv + ' 血量 ' + st.hp + ' / 满级 ' + st.max;
+  if (bar) bar.title = 'LV.' + st.lv + ' 血量上限 ' + st.cap + '（满级 ' + st.cap100 + '）';
   const fill = document.querySelector('.pb-fill');
-  if (fill && st.max) fill.style.width = Math.max(0, Math.min(100, (st.hp / st.max) * 100)) + '%';
+  if (fill) fill.style.width = '100%';
+  // 混乱阈值：点数为「百分比 × 该等级上限」，随等级一起变
+  document.querySelectorAll('.pb-mark').forEach((m) => {
+    const pct = Number(m.dataset.pct) || 0;
+    const rank = Number(m.dataset.rank) || 1;
+    const at = Math.round(st.cap * pct / 100);
+    m.title = '第 ' + rank + ' 档：' + pct + '% 血量（' + at + ' 点 / LV.' + st.lv + '）';
+  });
 }
 function pHeadBar(st) {
   const lvSt = pLvStats();
-  const hp = lvSt.hp || Number(st.hp65) || 0;
+  const cap = lvSt.cap || Number(st.hp65) || 0;
   const th = (st.thresholds || []).slice(0, 9);
   const order = th.map((x, i) => ({ pct: Number(x.pct) || 0, i })).sort((a, b) => b.pct - a.pct);
   const rankOf = (i) => order.findIndex((o) => o.i === i) + 1;
-  const marks = th.map((x, i) => { const rank = rankOf(i); const atHp = Math.round(hp * (Number(x.pct) || 0) / 100); return `<span class="pb-mark" style="left:${Math.max(0, Math.min(100, Number(x.pct)))}%;background:${P_THR_COLORS[(rank - 1) % P_THR_COLORS.length]}" title="第 ${rank} 档：${x.pct}% 血量（${atHp} 点 / LV.${lvSt.lv}）"></span>`; }).join('');
+  const marks = th.map((x, i) => { const rank = rankOf(i); const pct = Number(x.pct) || 0; const atHp = Math.round(cap * pct / 100); return `<span class="pb-mark" data-pct="${pct}" data-rank="${rank}" style="left:${Math.max(0, Math.min(100, pct))}%;background:${P_THR_COLORS[(rank - 1) % P_THR_COLORS.length]}" title="第 ${rank} 档：${pct}% 血量（${atHp} 点 / LV.${lvSt.lv}）"></span>`; }).join('');
   return `<div class="p-bar-wrap">
     <span class="p-lv" title="等级预览（1–100）：滚轮或点 ± 调整，只影响显示，不写入数据">LV.${lvSt.lv}</span>
     <button class="p-lv-btn" data-act="p-lv-dec" title="等级 −1">−</button>
     <button class="p-lv-btn" data-act="p-lv-inc" title="等级 +1">+</button>
-    <div class="p-bar" title="LV.${lvSt.lv} 血量 ${hp} / 满级 ${lvSt.max}"><span class="pb-fill" style="width:${lvSt.max ? Math.max(0, Math.min(100, (hp / lvSt.max) * 100)) : 100}%"></span>${marks}</div>
-    <span class="pb-total" title="LV.${lvSt.lv} 当前血量">♥${hp}</span>
+    <div class="p-bar" title="LV.${lvSt.lv} 血量上限 ${cap}（满级 ${lvSt.cap100}）"><span class="pb-fill" style="width:100%"></span>${marks}</div>
+    <span class="pb-total" title="LV.${lvSt.lv} 血量上限">♥${cap}</span>
   </div>`;
 }
 
