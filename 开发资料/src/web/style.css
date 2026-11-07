@@ -1714,3 +1714,10 @@ body.mod-reordering { cursor: grabbing; }
 .sk-icon-wrap .sk-icon{position:absolute;left:20%;top:20%;width:60%;height:60%;z-index:2;border-radius:0;background-color:#241d19;background-size:cover;background-position:center;box-shadow:none;-webkit-clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%);clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%)}
 .sk-lvl{background-image:var(--sk-lvl)}
 .sk-sin{background-image:var(--sk-sin)}
+
+/* ===== 全局字体：统一使用游戏本体中文字体（由本地服务 /font/chinese.ttf 提供） ===== */
+@font-face{font-family:"LCWGame";src:url("/font/chinese.ttf") format("truetype");font-display:swap;font-weight:100 900;font-style:normal}
+:root{--serif:"LCWGame","Cinzel","Trajan Pro","Times New Roman","Noto Serif SC",serif;--sans:"LCWGame","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;--mono:"LCWGame",Consolas,"Cascadia Mono",monospace}
+body,button,input,select,textarea,code,pre,kbd,samp{font-family:var(--sans)}
+h1,h2,h3,h4,.brand,.panel-head,.mb-hat-name,.sk-name{font-family:var(--serif)}
+code,pre,.ps-text,.bs-text{font-family:var(--mono)}

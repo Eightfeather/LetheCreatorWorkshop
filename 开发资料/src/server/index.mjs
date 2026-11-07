@@ -2,19 +2,20 @@ import * as http from 'node:http';
 import { warmupCaches } from '../lethe/warmup.mjs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, createReadStream } from 'node:fs';
 import { cleanName, resolveInside, safeRel } from '../safety.mjs';
 import { APP_ROOT, SRC_DIR } from '../paths.mjs';
 import { loadConfig } from '../config.mjs';
 import { locate } from '../locate.mjs';
 import { buildApi } from './api.mjs';
 import { checkHost, checkToken, readBody, sendError, sendJson, serveStatic } from './http.mjs';
+import { findGameFont } from '../lethe/gamefont.mjs';
 import { EditSession } from '../lethe/session.mjs';
 import { AutoSaver } from '../lethe/autosave.mjs';
 import { markCleanExit, markRunning } from '../lethe/state.mjs';
 import { migrateToLcw } from '../lethe/lcw.mjs';
 
-export const VERSION = '0.9.21';
+export const VERSION = '0.9.22';
 const WEB_ROOT = join(SRC_DIR, 'web');
 
 export function createServer({ token, state, log, session, autosave } = {}) {
@@ -59,7 +60,24 @@ export function createServer({ token, state, log, session, autosave } = {}) {
         return;
       }
 
-      if (serveStatic(req, res, WEB_ROOT, pathname, { token })) return;
+      // 游戏字体：按私服根定位 LimbusCompany_Data/Lang/*/Font/Context/*.ttf，直接流式返回（不走内嵌资源）
+  if (pathname === '/font/chinese.ttf') {
+    const hit = findGameFont(state.letheRoot);
+    if (!hit) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); res.end('没有找到游戏字体'); return; }
+    const etag = '\"' + Math.round(hit.mtime).toString(16) + '-' + hit.size.toString(16) + '\"';
+    if (String(req.headers['if-none-match'] || '') === etag) { res.writeHead(304, { etag }); res.end(); return; }
+    res.writeHead(200, {
+      'content-type': 'font/ttf',
+      'content-length': String(hit.size),
+      'cache-control': 'public, max-age=86400',
+      etag,
+    });
+    const st = createReadStream(hit.path);
+    st.on('error', () => { try { res.end(); } catch (e) {} });
+    st.pipe(res);
+    return;
+  }
+  if (serveStatic(req, res, WEB_ROOT, pathname, { token })) return;
       sendJson(res, 404, { ok: false, error: 'not found' });
     } catch (err) {
       log?.(`${req.method} ${req.url} -> ${err.message}`);
