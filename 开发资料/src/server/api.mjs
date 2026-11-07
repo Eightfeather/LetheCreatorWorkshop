@@ -18,11 +18,7 @@ import { autoBackupsDir, journalDir, markCleanExit, markRunning, readSessionMark
 import { restoreFromSlot, slotInfo } from '../lethe/snapshot.mjs';
 import { homeStats } from '../lethe/stats.mjs';
 import { createSkill, getSkill, importSkills, listSkills, searchSkillIndex, skillsOfVanillaPersonality } from '../lethe/skills.mjs';
-import {
-  BUFF_CLASSES, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS,
-  PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES,
-  createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta,
-  updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram } from '../lethe/meta.mjs';
+import { BUFF_CLASSES, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, skillCodePath } from '../lethe/meta.mjs';
 import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex } from '../lethe/passives.mjs';
 import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex } from '../lethe/buffs.mjs';
 import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
@@ -775,7 +771,36 @@ export function buildApi(ctx) {
           hasLocale: Boolean(one.locale),
           updatedAt: one.meta.updatedAt || '',
           info: one.meta.info,
-          code: one.meta.code,
+          code: (() => {
+            const sd0 = ((((one.entity || {}).skillData) || [])[0]) || {};
+            const coins0 = Array.isArray(sd0.coinList) ? sd0.coinList : [];
+            const fileCoins = coins0.map((c) => ({
+              color: coinColor((c || {}).color),
+              value: Number((c || {}).scale) || 0,
+            }));
+            const hasCodeFile = fs.existsSync(skillCodePath(letheRoot, q.get('name'), one.id));
+            const draft = (one.meta && one.meta.code) || {};
+            const draftCoins = Array.isArray(draft.coins) ? draft.coins : [];
+            // 草稿与文件硬币数量不一致 => 视为过期草稿，按文件重建（保留同位置的模块绑定）
+            if (hasCodeFile && draftCoins.length === fileCoins.length) {
+              return {
+                ...draft,
+                coins: draftCoins.map((c, i) => ({
+                  ...c,
+                  color: fileCoins[i].color,
+                  value: Number.isFinite(Number(c && c.value)) ? Number(c.value) : fileCoins[i].value,
+                })),
+              };
+            }
+            return {
+              ...draft,
+              coins: fileCoins.map((f, i) => ({
+                color: f.color,
+                value: f.value,
+                modules: Array.isArray(draftCoins[i] && draftCoins[i].modules) ? [...draftCoins[i].modules] : [],
+              })),
+            };
+          })(),
           description: one.meta.description,
           coinDescs: one.meta.coinDescs,
           descSource: String(one.meta.description || '') ? 'meta' : (String(lvPick.desc || '') ? 'locale' : 'none'),
