@@ -4848,6 +4848,14 @@ function renderModuleEditorInner(back) {
 /* ---------------- 程序变更 ---------------- */
 
 // 固定取值集合 → 下拉；其余仍走积木槽
+// 固定取值集合（来自 /api/keywords 的 argEnums）：返回 { zh, values:[[value,label],...] } 或 null
+function mbArgEnum(kind, name, i) {
+  const t = (S.keywords && S.keywords.argEnums) || {};
+  const e = t[kind + ':' + name + ':' + i];
+  if (e && Array.isArray(e.values) && e.values.length) return e;
+  return null;
+}
+
 function mbArgHtml(v, chain, slotType, kind, name, i) {
   const en = mbArgEnum(kind, name, i);
   const opt = mbArgOptional(kind, name, i);
@@ -5152,6 +5160,19 @@ function mbDropResolve(x, y, payload) {
     return mbSetSlot(mbSlotChain(slot), payload.node);
   }
   const stackEl = el.closest('[data-stack]');
+  // 落在时点帽子本体上（帽子头部、遍历槽、内边距）：视为「放进这个时点的正文」
+  const hatEl = el.closest('.bk.hat');
+  if (hatEl && payload && payload.node) {
+    if (payload.node.k === 'timing') {
+      // 把另一个时点丢到帽子头上：插到该帽子之后（同级），不吞进正文
+      const hatId = String(hatEl.dataset.mbBk || '');
+      const hp = hatId ? hatId.split('.').map(Number) : [];
+      if (hp.length === 1) return mbInsert('root', hp[0] + 1, payload.node);
+    } else {
+      const own = hatEl.querySelector(':scope > .bk-body[data-stack]');
+      if (own && !own.contains(el)) return mbInsert(own.dataset.stack, mbIndexAt(own, y), payload.node);
+    }
+  }
   if (slot && !stackEl) return false;
   if (stackEl) return mbInsert(stackEl.dataset.stack, mbIndexAt(stackEl, y), payload.node);
   if (el.closest('.mb-canvas')) {
