@@ -1685,8 +1685,8 @@ body.mod-reordering { cursor: grabbing; }
 .sk-base{min-width:46px;text-align:right;font:700 30px/1 var(--serif);color:#F3E4C4}
 .sk-icon-col{display:flex;flex-direction:column;align-items:center;gap:6px}
 .sk-coinval{min-height:16px;font:700 12.5px/1 var(--sans);color:#F3D98B;letter-spacing:.5px}
-.sk-icon-wrap{position:relative;width:84px;height:84px;display:grid;place-items:center}
-.sk-icon-wrap::before{content:"";position:absolute;inset:-14px;background-size:contain;background-repeat:no-repeat;background-position:center;pointer-events:none;filter:drop-shadow(0 0 5px rgba(0,0,0,.5))}
+.sk-icon-wrap{position:relative;width:96px;height:92px;display:grid;place-items:center}
+.sk-icon-wrap::before{content:"";position:absolute;inset:0;background-size:100% 100%;background-repeat:no-repeat;background-position:center;pointer-events:none;filter:drop-shadow(0 0 5px rgba(0,0,0,.45))}
 .sk-icon{position:relative;width:64px;height:64px;border-radius:6px;background-color:#241d19;background-size:cover;background-position:center;box-shadow:inset 0 0 0 1px rgba(0,0,0,.5)}
 .sk-ico-coin,.sk-ico-atk{display:inline-block;background-size:contain;background-repeat:no-repeat;background-position:center}
 .sk-ico-coin{width:16px;height:16px}
@@ -1703,3 +1703,6 @@ body.mod-reordering { cursor: grabbing; }
 .sk-row-l{flex:0 0 138px;color:#C9B79A;font-size:12.5px}
 .sk-row-v{flex:1 1 auto;min-width:0;background:#171210;border:1px solid rgba(198,161,91,.28);border-radius:5px;color:#F1E6D2;padding:5px 8px;font-size:12.5px}
 .sk-row-v:focus{outline:none;border-color:var(--gold)}
+
+/* v0.9.17：技能图标裁成六边形，与 wiki 成品边框内框对齐 */
+.sk-icon{clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);width:72px;height:72px;object-fit:cover}

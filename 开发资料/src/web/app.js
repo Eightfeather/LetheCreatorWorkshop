@@ -3203,15 +3203,15 @@ const SK_SIN_COLOR = {
   AZURE: "#2C4F7C", INDIGO: "#3B3A6E", VIOLET: "#6A3A72", WHITE: "#8A8A8A", BLACK: "#3A3A3A", NEUTRAL: "#5A5A5A",
 };
 function skSinColor(sin) { return SK_SIN_COLOR[String(sin || "").toUpperCase()] || SK_SIN_COLOR.NEUTRAL; }
-function skFrameClass(sin, tier) {
-  const i = SK_SIN_ORDER.indexOf(String(sin || "").toUpperCase());
-  const t = Math.max(1, Math.min(3, Number(tier) || 1));
-  const known = { t1_0: 1, t1_1: 1, t1_2: 1, t1_3: 1, t1_4: 1, t1_5: 1, t1_6: 1, t2_7: 1, t2_8: 1, t2_9: 1, t3_0: 1, t3_1: 1, t3_2: 1, t3_3: 1, t3_4: 1, t3_5: 1, t3_6: 1 };
-  const cand = i >= 0 ? ("t" + t + "_" + i) : "";
-  if (known[cand]) return "sk-frame-" + cand;
-  const fb = i >= 0 ? ("t1_" + i) : "";
-  return "sk-frame-" + (known[fb] ? fb : "generic");
+function skFrameClass(atk, sin) {
+  const a = String(atk || "").toUpperCase();
+  const key = a === "SLASH" ? "slash" : a === "HIT" ? "hit" : a === "PENETRATE" ? "penetrate" : "";
+  const s2 = String(sin || "").toUpperCase();
+  const sk = ["CRIMSON","SCARLET","AMBER","SHAMROCK","AZURE","INDIGO","VIOLET"].includes(s2) ? s2.toLowerCase() : "";
+  if (!key || !sk) return "";
+  return "sk-frame-" + key + "_" + sk;
 }
+
 function renderSkillPreview(sk) {
   const info = sk.info || {};
   const coins = (sk.code && Array.isArray(sk.code.coins)) ? sk.code.coins : [];
@@ -3231,7 +3231,7 @@ function renderSkillPreview(sk) {
     + "<div class=\"sk-base\" title=\"基础威力\">" + esc(String(Number(info.basePower) || 0)) + "</div>"
     + "<div class=\"sk-icon-col\">"
     + (powerText ? "<div class=\"sk-coinval\" title=\"第 1 枚硬币威力（变动值）\">" + esc(powerText) + "</div>" : "<div class=\"sk-coinval\"></div>")
-    + "<div class=\"sk-icon-wrap " + skFrameClass(sin, Number(info.skillTier) || sk.skillTier) + "\" style=\"--skc:" + col + "\">"
+    + "<div class=\"sk-icon-wrap " + skFrameClass(info.physical, sin) + "\" style=\"--skc:" + col + "\">"
     + "<span class=\"sk-icon\" style=\"" + icon + "\"></span>"
     + "</div></div>"
     + "<div class=\"sk-name-col\">"
@@ -3591,7 +3591,7 @@ function updateSkillDom() {
     const info = S.skill.info || {};
     const sin = String(info.sin || "").toUpperCase();
     const wrap = pv.querySelector(".sk-icon-wrap");
-    if (wrap) { wrap.className = "sk-icon-wrap " + skFrameClass(sin, Number(info.skillTier) || S.skill.skillTier); wrap.style.setProperty("--skc", skSinColor(sin)); }
+    if (wrap) { wrap.className = "sk-icon-wrap " + skFrameClass(info.physical, sin); wrap.style.setProperty("--skc", skSinColor(sin)); }
     const nm = pv.querySelector(".sk-name");
     if (nm) nm.style.background = skSinColor(sin);
     const coins = (S.skill.code && S.skill.code.coins) || [];
