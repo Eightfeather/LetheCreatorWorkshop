@@ -38,7 +38,8 @@ function walk(dir, base = dir) {
 const loadDep = createRequire(join(CACHE, 'package.json'));
 
 function buildAssets() {
-  const web = walk(join(ROOT, 'src', 'web'));
+  const TEXT_EXT = /\.(html|js|mjs|css|json|svg|txt|md)$/i;
+  const web = walk(join(ROOT, 'src', 'web')).filter((f) => TEXT_EXT.test(f.rel));
   const entries = web.map((f) => ['web/' + f.rel, readFileSync(f.abs, 'utf8')]);
   const src = `// 自动生成：web 资源内联进 exe\nexport const ASSETS = ${JSON.stringify(Object.fromEntries(entries), null, 0)};\n`;
   writeFileSync(join(BUILD, 'assets.gen.mjs'), src, 'utf8');

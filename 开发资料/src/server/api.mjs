@@ -801,6 +801,9 @@ export function buildApi(ctx) {
               sign: op === 'SUB' ? 'negative' : 'positive',
               defType: String(sd0.defType || ''),
               skillType: String(one.entity.skillType || ''),
+              skillTier: Number(one.entity.skillTier) || 1,
+              coinValues: coins0.map((c) => Number((c || {}).scale) || 0),
+              coinOps: coins0.map((c) => String((c || {}).operatorType || '').toUpperCase()),
             };
           })(),
           coinTotal: ((((one.entity || {}).skillData) || [])[0] || {}).coinList ? ((((one.entity || {}).skillData) || [])[0].coinList || []).length : 0,
@@ -809,6 +812,22 @@ export function buildApi(ctx) {
       };
     },
 
+    'GET /api/skill/icon': (q) => {
+      const { letheRoot } = need();
+      const mod = String(q.get('name') || '');
+      const id = String(q.get('id') || '');
+      const dir = modDirSafe(letheRoot, mod);
+      const base = join(dir, 'custom_sprites');
+      const names = ['skill_' + id + '.png', 'skill_' + id + '_1.png', 'skill_' + id + '.webp'];
+      for (const n of names) {
+        const p = join(base, n);
+        if (fs.existsSync(p) && fs.statSync(p).size <= 4 * 1024 * 1024) {
+          const mime = /\.webp$/i.test(n) ? 'image/webp' : 'image/png';
+          return { ok: true, dataUrl: 'data:' + mime + ';base64,' + fs.readFileSync(p).toString('base64'), file: n };
+        }
+      }
+      return { ok: true, dataUrl: '', file: null };
+    },
     'POST /api/skill/create': (body) => {
       const { letheRoot } = need();
       const created = createSkill(letheRoot, { name: body.name, id: body.id, displayName: body.displayName });

@@ -2874,6 +2874,7 @@ document.addEventListener('change', (e) => {
   }
 
   /* ---- 镜牢编辑：选择类控件（下拉/复选） ---- */
+  const t = e.target;
   if (t.dataset && t.dataset.mdinfo && S.md) { mdSetField(t); return; }
   if (t.dataset && t.dataset.mdnodeType !== undefined && S.md) {
     const i = Number(t.dataset.index);
@@ -2888,7 +2889,6 @@ document.addEventListener('change', (e) => {
     if (row) { row[t.dataset.mdrow] = mdRowValue(key, t.dataset.mdrow, t.value, t.type === 'number'); S.mdDirty = true; }
     return;
   }
-  const t = e.target;
   if (t.dataset && t.dataset.pcond) { schedulePInfo(); return; }
   if (t.dataset && t.dataset.tagsel) { pApplyTag(t.dataset.tagsel).catch((err) => toast(err.message, 'error')); return; }
   if (t.dataset && t.dataset.info) { scheduleInfo(); return; }
@@ -3109,8 +3109,11 @@ function pNormalizeSkill(sk) {
       physical: fi.physical || keep.physical,
       sin: fi.sin || keep.sin,
       sign: fi.sign || keep.sign,
+      skillTier: Number(fi.skillTier) || Number(keep.skillTier) || 1,
     });
     out.infoSource = 'file';
+    out.coinValues = Array.isArray(fi.coinValues) ? fi.coinValues : (out.coinValues || []);
+    out.skillTier = Number(fi.skillTier) || Number(out.skillTier) || 1;
   }
   const total = Number(out.coinTotal || 0);
   if (out.code && Array.isArray(out.code.coins) && total > 0) {
@@ -3135,6 +3138,7 @@ async function reloadSkill() {
   if (!S.selected || !S.skillId) return;
   const res = await api('/api/skill?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(S.skillId));
   S.skill = pNormalizeSkill(res.skill);
+  await loadSkillIcon(S.skill);
   await refreshSession(S.selected);
   await checkDesc();
 }
@@ -3142,6 +3146,7 @@ async function reloadSkill() {
 async function openSkill(id) {
   const res = await api('/api/skill?name=' + encodeURIComponent(S.selected) + '&id=' + encodeURIComponent(id));
   S.skill = pNormalizeSkill(res.skill);
+  await loadSkillIcon(S.skill);
   S.skillId = String(id);
   S.sessionKey = 'skill:' + id;
   S.descCheck = null;
@@ -3192,6 +3197,75 @@ function renderSkillArea(back) {
     + '</div>';
 }
 
+const SK_SIN_ORDER = ["CRIMSON", "SCARLET", "AMBER", "SHAMROCK", "AZURE", "INDIGO", "VIOLET"];
+const SK_SIN_COLOR = {
+  CRIMSON: "#8C2230", SCARLET: "#B4501B", AMBER: "#B08A18", SHAMROCK: "#3F6B45",
+  AZURE: "#2C4F7C", INDIGO: "#3B3A6E", VIOLET: "#6A3A72", WHITE: "#8A8A8A", BLACK: "#3A3A3A", NEUTRAL: "#5A5A5A",
+};
+function skSinColor(sin) { return SK_SIN_COLOR[String(sin || "").toUpperCase()] || SK_SIN_COLOR.NEUTRAL; }
+function skFrameClass(sin, tier) {
+  const i = SK_SIN_ORDER.indexOf(String(sin || "").toUpperCase());
+  const t = Math.max(1, Math.min(3, Number(tier) || 1));
+  const known = { t1_0: 1, t1_1: 1, t1_2: 1, t1_3: 1, t1_4: 1, t1_5: 1, t1_6: 1, t2_7: 1, t2_8: 1, t2_9: 1, t3_0: 1, t3_1: 1, t3_2: 1, t3_3: 1, t3_4: 1, t3_5: 1, t3_6: 1 };
+  const cand = i >= 0 ? ("t" + t + "_" + i) : "";
+  if (known[cand]) return "sk-frame-" + cand;
+  const fb = i >= 0 ? ("t1_" + i) : "";
+  return "sk-frame-" + (known[fb] ? fb : "generic");
+}
+function renderSkillPreview(sk) {
+  const info = sk.info || {};
+  const coins = (sk.code && Array.isArray(sk.code.coins)) ? sk.code.coins : [];
+  const n = Math.max(0, Number(info.coinCount) || coins.length || 0);
+  const first = coins[0] || {};
+  const sign = String(info.sign || "positive");
+  const fp = Number(first.value);
+  const powerText = (n > 0 && Number.isFinite(fp)) ? ((sign === "negative" ? "-" : "+") + Math.abs(fp)) : "";
+  const sin = String(info.sin || "").toUpperCase();
+  const col = skSinColor(sin);
+  const atk = Number(info.atkCorrection) || 0;
+  const cap = Math.max(0, Number(info.targetNum) || 0);
+  const icon = sk.iconDataUrl ? ("background-image:url('" + sk.iconDataUrl + "')") : "";
+  const coinIcons = Array.from({ length: n }, () => "<i class=\"sk-ico-coin sk-coin\"></i>").join("");
+  return "<div class=\"skill-prev-card\">"
+    + "<div class=\"sk-prev\">"
+    + "<div class=\"sk-base\" title=\"基础威力\">" + esc(String(Number(info.basePower) || 0)) + "</div>"
+    + "<div class=\"sk-icon-col\">"
+    + (powerText ? "<div class=\"sk-coinval\" title=\"第 1 枚硬币威力（变动值）\">" + esc(powerText) + "</div>" : "<div class=\"sk-coinval\"></div>")
+    + "<div class=\"sk-icon-wrap " + skFrameClass(sin, Number(info.skillTier) || sk.skillTier) + "\">"
+    + "<span class=\"sk-icon\" style=\"" + icon + "\"></span>"
+    + "</div></div>"
+    + "<div class=\"sk-name-col\">"
+    + "<div class=\"sk-coins\">" + coinIcons + "</div>"
+    + "<div class=\"sk-name\" style=\"background:" + col + "\">" + esc(sk.name || String(sk.id)) + "</div>"
+    + "<div class=\"sk-meta\">"
+    + "<span class=\"sk-atk\" title=\"攻击修正值\"><i class=\"sk-ico-atk\"></i>" + esc((atk >= 0 ? "+" : "") + atk) + "</span>"
+    + "<span class=\"sk-cap\" title=\"攻击容量\">攻击容量<em>" + "■".repeat(cap) + "</em></span>"
+    + "</div></div></div></div>";
+}
+function renderSkillInfoList(sk) {
+  const info = sk.info || {};
+  const rowText = (label, key) => "<div class=\"sk-row\"><span class=\"sk-row-l\">" + label + "</span>"
+    + "<input class=\"sk-row-v\" type=\"text\" inputmode=\"decimal\" data-num=\"1\" data-info=\"" + key + "\" value=\"" + esc(info[key] == null ? "" : info[key]) + "\"></div>";
+  const rowSel = (label, key, arr) => "<div class=\"sk-row\"><span class=\"sk-row-l\">" + label + "</span>"
+    + "<select class=\"sk-row-v\" data-info=\"" + key + "\">" + (arr || []).map((x) => "<option value=\"" + esc(x.id) + "\"" + (String(x.id) === String(info[key]) ? " selected" : "") + ">" + esc(x.zh || x.id) + "</option>").join("") + "</select></div>";
+  return "<div class=\"info-card skill-info\"><div class=\"col-title\">基础信息</div>"
+    + "<div class=\"hint muted\" style=\"margin:-2px 0 8px\">数值直接取自技能文件；改动写回技能文件并记入撤销历史。</div>"
+    + "<div class=\"sk-list\">"
+    + rowText("基础威力", "basePower") + rowText("硬币数量", "coinCount")
+    + rowText("攻击修正值", "atkCorrection") + rowText("攻击容量", "targetNum")
+    + rowSel("物理属性", "physical", (S.keywords && S.keywords.physical) || [])
+    + rowSel("罪孽属性", "sin", (S.keywords && S.keywords.sin) || [])
+    + rowSel("正负硬币技能", "sign", [{ id: "positive", zh: "正面硬币" }, { id: "negative", zh: "反面硬币" }])
+    + rowSel("技能等级（边框档位）", "skillTier", [{ id: "1", zh: "等级 1" }, { id: "2", zh: "等级 2" }, { id: "3", zh: "等级 3" }])
+    + "</div></div>";
+}
+async function loadSkillIcon(sk) {
+  if (!sk || !S.selected) return;
+  try {
+    const rr = await api("/api/skill/icon?name=" + encodeURIComponent(S.selected) + "&id=" + encodeURIComponent(sk.id));
+    sk.iconDataUrl = (rr && rr.dataUrl) || "";
+  } catch (e) { sk.iconDataUrl = ""; }
+}
 function renderSkillMain() {
   if (!S.skill) {
     return '<section class="panel skill-main"><div class="panel-head">技能</div><div class="panel-body">'
@@ -3211,15 +3285,7 @@ function renderSkillMain() {
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
     + '<button class="btn primary sm" data-act="save-personality">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
-    + '<div class="skill-body"><div class="info-card skill-info"><div class="col-title">基础信息</div>'
-    + (sk.infoSource === 'file' ? '<div class="hint muted" style="margin:-2px 0 8px">以下数值直接取自技能文件；改动会写回技能文件并记入撤销历史。</div>' : '')
-    + '<div class="grid-2">'
-    + field('基础威力', 'basePower') + field('硬币数量', 'coinCount', 'number', 'min="1" max="12"')
-    + field('攻击修正值', 'atkCorrection') + field('攻击容量', 'targetNum')
-    + sel('物理属性', 'physical', S.keywords?.physical || []) + sel('罪孽属性', 'sin', S.keywords?.sin || [])
-    + sel('正负硬币技能', 'sign', [{ id: 'positive', zh: '正面硬币' }, { id: 'negative', zh: '反面硬币' }])
-    + '</div><div class="hint muted">技能名与 id 在创建时确定；名称本地化维护在后续版本提供。</div></div>'
-    + '<div class="editor-card"><div class="tabs">'
+    + '<div class="skill-body">' + renderSkillPreview(sk) + renderSkillInfoList(sk) + '<div class="editor-card"><div class="tabs">'
     + '<button class="tab ' + (S.skillTab === 'code' ? 'active' : '') + '" data-act="skill-tab" data-tab="code">代码</button>'
     + '<button class="tab ' + (S.skillTab === 'desc' ? 'active' : '') + '" data-act="skill-tab" data-tab="desc">描述</button></div>'
     + (S.skillTab === 'desc' ? renderSkillDesc(sk) : renderSkillCode(code))
@@ -3483,7 +3549,7 @@ async function flushInfo() {
   });
   const before = (S.skill.code?.coins || []).length;
   const res = await api('/api/skill/state', { method: 'POST', body: { name: S.selected, id: S.skillId, info } });
-  S.skill = { ...S.skill, info: res.info, infoSource: 'file' };
+  S.skill = { ...S.skill, info: res.info, infoSource: 'file', skillTier: Number(res.info.skillTier) || S.skill.skillTier };
   const total = Number(res.info.coinCount) || before;
   const coins = (S.skill.code?.coins || []).slice(0, total).map((c) => ({ ...c }));
   while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
@@ -3519,6 +3585,32 @@ function updateSkillDom() {
   if (game) {
     const all = [descStateOf('skill').game || '', ...Array.from({ length: n }, (_, i) => descStateOf('coin', i).game || '')].filter(Boolean);
     game.textContent = all.join('\n');
+  }
+  const pv = document.querySelector(".sk-prev");
+  if (pv && S.skill) {
+    const info = S.skill.info || {};
+    const sin = String(info.sin || "").toUpperCase();
+    const wrap = pv.querySelector(".sk-icon-wrap");
+    if (wrap) wrap.className = "sk-icon-wrap " + skFrameClass(sin, Number(info.skillTier) || S.skill.skillTier);
+    const nm = pv.querySelector(".sk-name");
+    if (nm) nm.style.background = skSinColor(sin);
+    const coins = (S.skill.code && S.skill.code.coins) || [];
+    const nCoin = Math.max(0, Number(info.coinCount) || coins.length || 0);
+    const box = pv.querySelector(".sk-coins");
+    if (box) box.innerHTML = Array.from({ length: nCoin }, () => "<i class=\"sk-ico-coin sk-coin\"></i>").join("");
+    const base = pv.querySelector(".sk-base");
+    if (base) base.textContent = String(Number(info.basePower) || 0);
+    const first = coins[0] || {};
+    const fp = Number(first.value);
+    const sign = String(info.sign || "positive");
+    const cv = pv.querySelector(".sk-coinval");
+    if (cv) cv.textContent = (nCoin > 0 && Number.isFinite(fp)) ? ((sign === "negative" ? "-" : "+") + Math.abs(fp)) : "";
+    const cap = Math.max(0, Number(info.targetNum) || 0);
+    const em = pv.querySelector(".sk-cap em");
+    if (em) em.textContent = "■".repeat(cap);
+    const atk = Number(info.atkCorrection) || 0;
+    const atkEl = pv.querySelector(".sk-atk");
+    if (atkEl) atkEl.innerHTML = "<i class=\"sk-ico-atk\"></i>" + (atk >= 0 ? "+" : "") + atk;
   }
   updateDock();
 }

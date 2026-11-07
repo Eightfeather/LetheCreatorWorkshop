@@ -83,6 +83,10 @@ export function saveSkillFields(letheRoot, { name, id, info = {} } = {}) {
   if (info.physical) sd.atkType = String(info.physical);
   if (info.sin) sd.attributeType = String(info.sin);
 
+  if (info.skillTier != null && info.skillTier !== '') {
+    const t = Number(info.skillTier);
+    if (Number.isFinite(t) && t >= 1 && t <= 7) ent.skillTier = t;
+  }
   const op = String(info.sign) === 'negative' ? 'SUB' : 'ADD';
   const n = Number(info.coinCount);
   if (Number.isFinite(n) && n >= 1 && n <= 12) {
@@ -110,6 +114,7 @@ export function saveSkillFields(letheRoot, { name, id, info = {} } = {}) {
   });
   writeSkillMeta(letheRoot, mod, String(id), { info });
   return { changes: result.changes, entity: ent, info: {
+    skillTier: Number(ent.skillTier) || 1,
     basePower: Number(sd.defaultValue) || 0,
     coinCount: (sd.coinList || []).length,
     atkCorrection: Number(sd.skillLevelCorrection) || 0,
