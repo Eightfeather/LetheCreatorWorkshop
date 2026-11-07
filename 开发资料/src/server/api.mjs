@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import { migrateToLcw, ensureLcwPart } from '../lethe/lcw.mjs';
+import { warmupCaches } from '../lethe/warmup.mjs';
 import { ARG_COUNTS } from '../knowledge/arg-counts.mjs';
 import { dirname, join } from 'node:path';
 import { APP_ROOT, USER_DATA_DIR } from '../paths.mjs';
@@ -225,7 +226,9 @@ export function buildApi(ctx) {
       if (result.best) {
         state.letheRoot = result.best.letheRoot;
       migrateToLcw(state.letheRoot, log);
+        warmupCaches(state.letheRoot, log).catch(() => {});
         migrateToLcw(state.letheRoot, log);
+        warmupCaches(state.letheRoot, log).catch(() => {});
         state.gameRoot = result.best.gameRoot;
         state.locatedAt = new Date().toISOString();
         state.source = result.best.from;
@@ -245,6 +248,7 @@ export function buildApi(ctx) {
       }
       state.letheRoot = result.best.letheRoot;
       migrateToLcw(state.letheRoot, log);
+        warmupCaches(state.letheRoot, log).catch(() => {});
       state.gameRoot = result.best.gameRoot;
       state.locatedAt = new Date().toISOString();
       state.source = 'manual';
@@ -538,6 +542,8 @@ export function buildApi(ctx) {
         unitKeyword: t.unitKeyword,
         association: t.association,
         unitUse: t.unitUse || {},
+        unitApprox: t.unitApprox || [],
+        assocApprox: t.assocApprox || [],
         assocUse: t.assocUse || {},
         unitDeprecated: t.unitDeprecated || [],
         assocDeprecated: t.assocDeprecated || [],

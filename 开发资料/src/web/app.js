@@ -811,7 +811,8 @@ const ATK_LIST = ['SLASH', 'PENETRATE', 'HIT'];
 const ATK_ZH = { SLASH: '斩击', PENETRATE: '突刺', HIT: '打击' };
 
 async function loadPersonalityExtra() {
-  await loadAppCatalog((S.personality && S.personality.entity) || null);
+  /* v0.9.9：外观目录改为后台加载，不再阻塞人格页首屏 */
+  loadAppCatalog((S.personality && S.personality.entity) || null).catch(() => {});
   await loadPortrait();
   if (!S.selected || !S.personalityId) return;
   try {
@@ -914,15 +915,48 @@ async function loadAppCatalog(e) {
   } catch (err) { S.pAppCatalog = []; }
 }
 
+/* v0.9.9：等级预览（1–100），只影响显示，不写盘 */
+const P_LV_MIN = 1;
+const P_LV_MAX = 100;
+const P_LV_DEFAULT = 65;
+function pLvNow() {
+  const n = Number(S.pLv);
+  if (!Number.isFinite(n)) return P_LV_DEFAULT;
+  return Math.max(P_LV_MIN, Math.min(P_LV_MAX, Math.round(n)));
+}
+function pLvStats(entity) {
+  const e = entity || ((S.personality && S.personality.entity) || {});
+  const base = Number((e.hp || {}).defaultStat) || 0;
+  const inc = Number((e.hp || {}).incrementByLevel) || 0;
+  const lv = pLvNow();
+  const hp = base ? Math.max(1, Math.round(base + inc * (lv - 1))) : 0;
+  const max = base ? Math.max(1, Math.round(base + inc * (P_LV_MAX - 1))) : 0;
+  return { lv, hp, max };
+}
+function pLvDomUpdate() {
+  const st = pLvStats();
+  const lv = document.querySelector('.p-lv');
+  if (lv) lv.textContent = 'LV.' + st.lv;
+  const tot = document.querySelector('.pb-total');
+  if (tot) tot.textContent = '♥' + st.hp;
+  const bar = document.querySelector('.p-bar');
+  if (bar) bar.title = 'LV.' + st.lv + ' 血量 ' + st.hp + ' / 满级 ' + st.max;
+  const fill = document.querySelector('.pb-fill');
+  if (fill && st.max) fill.style.width = Math.max(0, Math.min(100, (st.hp / st.max) * 100)) + '%';
+}
 function pHeadBar(st) {
-  const hp = Number(st.hp65) || 0;
+  const lvSt = pLvStats();
+  const hp = lvSt.hp || Number(st.hp65) || 0;
   const th = (st.thresholds || []).slice(0, 9);
   const order = th.map((x, i) => ({ pct: Number(x.pct) || 0, i })).sort((a, b) => b.pct - a.pct);
   const rankOf = (i) => order.findIndex((o) => o.i === i) + 1;
-  const marks = th.map((x, i) => { const rank = rankOf(i); return `<span class="pb-mark" style="left:${Math.max(0, Math.min(100, Number(x.pct)))}%;background:${P_THR_COLORS[(rank - 1) % P_THR_COLORS.length]}" title="第 ${rank} 档：${x.pct}% 血量（${x.hp} 点）"></span>`; }).join('');
+  const marks = th.map((x, i) => { const rank = rankOf(i); const atHp = Math.round(hp * (Number(x.pct) || 0) / 100); return `<span class="pb-mark" style="left:${Math.max(0, Math.min(100, Number(x.pct)))}%;background:${P_THR_COLORS[(rank - 1) % P_THR_COLORS.length]}" title="第 ${rank} 档：${x.pct}% 血量（${atHp} 点 / LV.${lvSt.lv}）"></span>`; }).join('');
   return `<div class="p-bar-wrap">
-    <div class="p-bar" title="Lv.65 血量 ${hp}"><span class="pb-fill"></span>${marks}</div>
-    <span class="pb-total" title="Lv.65 血量上限">♥${hp}</span>
+    <span class="p-lv" title="等级预览（1–100）：滚轮或点 ± 调整，只影响显示，不写入数据">LV.${lvSt.lv}</span>
+    <button class="p-lv-btn" data-act="p-lv-dec" title="等级 −1">−</button>
+    <button class="p-lv-btn" data-act="p-lv-inc" title="等级 +1">+</button>
+    <div class="p-bar" title="LV.${lvSt.lv} 血量 ${hp} / 满级 ${lvSt.max}"><span class="pb-fill" style="width:${lvSt.max ? Math.max(0, Math.min(100, (hp / lvSt.max) * 100)) : 100}%"></span>${marks}</div>
+    <span class="pb-total" title="LV.${lvSt.lv} 当前血量">♥${hp}</span>
   </div>`;
 }
 
@@ -1057,13 +1091,14 @@ function pTagChoices(kind) {
   const map = kind === 'unit' ? (t.unitKeyword || {}) : (t.association || {});
   const use = (kind === 'unit' ? t.unitUse : t.assocUse) || {};
   const dep = new Set((kind === 'unit' ? t.unitDeprecated : t.assocDeprecated) || []);
+  const apx = new Set((kind === 'unit' ? t.unitApprox : t.assocApprox) || []);
   return Object.keys(map)
-    .map((id) => ({ id, zh: map[id] || '', n: Number(use[id]) || 0, dep: dep.has(id) }))
+    .map((id) => ({ id, zh: map[id] || '', n: Number(use[id]) || 0, dep: dep.has(id), apx: apx.has(id) }))
     .sort((a, b) => (b.n - a.n) || String(a.zh || a.id).localeCompare(String(b.zh || b.id), 'zh'));
 }
 
 function pTagLabel(c) {
-  const name = c.zh || c.id;
+  const name = c.zh ? String(c.zh) + (c.apx ? ' ≈' : '') : String(c.id) + ' · 官方无译名';
   return c.n ? name + '（' + c.n + '）' : name;
 }
 
@@ -1096,7 +1131,7 @@ function pTagHitsHtml(kind) {
     .filter((c) => !used.has(String(c.id)))
     .filter((c) => !q || String(c.id).toLowerCase().includes(q) || String(c.zh || '').toLowerCase().includes(q));
   const hits = pool.slice(0, 12);
-  const btns = hits.map((c) => '<button type="button" class="p-taghit' + (c.dep ? ' dep' : '') + '" data-act="p-tag-add2" data-kind="' + kind + '" data-id="' + esc(c.id) + '" title="' + esc(c.id) + (c.dep ? ' · 原版已废弃' : '') + '">' + esc(pShort(pTagLabel(c), 16)) + '</button>').join('');
+  const btns = hits.map((c) => '<button type="button" class="p-taghit' + (c.dep ? ' dep' : '') + '" data-act="p-tag-add2" data-kind="' + kind + '" data-id="' + esc(c.id) + '" title="' + esc(c.id) + (c.dep ? ' · 原版已废弃' : '') + (c.apx ? ' · 近似官方项' : '') + (c.zh ? '' : ' · 官方无译名') + '">' + esc(pShort(pTagLabel(c), 16)) + '</button>').join('');
   const more = pool.length > hits.length ? '<span class="muted">还有 ' + (pool.length - hits.length) + ' 个，继续输入可筛选</span>' : '';
   return btns + (pool.length ? more : (q ? '<span class="muted">没有匹配（只能选已注册词条）</span>' : ''));
 }
@@ -1321,6 +1356,18 @@ function renderPersonalityDetail() {
 /* ---- 立绘 / 源代码 / 删除 三个弹窗 ---- */
 
 /* 立绘区骨架（文档 17 第 11 条）：左侧显示数据，右侧留空（候选本轮不接入） */
+/* v0.9.9：立绘弹窗 = 双草稿 + 一个保存按钮；切页签不丢未保存的图。
+   S.pf.dataUrl / S.pf.kind 是当前页签的视图值，草稿在 S.pf.profile / S.pf.cg。 */
+function pPfDraft(kind) {
+  if (!S.pf || !S.pf.profile || !S.pf.cg) {
+    const sp = S.pPortrait || {};
+    S.pf = { kind: (S.pf && S.pf.kind) || 'profile',
+      profile: { dataUrl: (sp.profile || {}).dataUrl || '', dirty: false },
+      cg: { dataUrl: (sp.cg || {}).dataUrl || '', dirty: false } };
+    S.pf.dataUrl = (S.pf[S.pf.kind] || {}).dataUrl || "";
+  }
+  return S.pf[kind || S.pf.kind] || S.pf.profile;
+}
 function portraitBody() {
   const f = S.pf || { kind: 'profile', dataUrl: '' };
   const label = f.kind === 'profile' ? '一破（profile）' : '三破（cg）';
@@ -1374,13 +1421,17 @@ async function openPortraitModal() {
   if (!S.personality) return;
   try { await ensureAppOptions(); } catch (e) { toast(e.message, 'error'); }
   const sp = S.pPortrait || {};
-  const kind = sp.profile ? 'profile' : (sp.cg ? 'cg' : 'profile');
-  S.pf = { kind, dataUrl: (sp[kind] || {}).dataUrl || '' };
+  S.pf = {
+    kind: sp.profile ? 'profile' : (sp.cg ? 'cg' : 'profile'),
+    profile: { dataUrl: (sp.profile || {}).dataUrl || '', dirty: false },
+    cg: { dataUrl: (sp.cg || {}).dataUrl || '', dirty: false },
+  };
+  S.pf.dataUrl = (S.pf[S.pf.kind] || {}).dataUrl || "";
   S.pfAppQ = '';
   modal({
     title: '编辑立绘',
     body: `<div class="pf-host">${portraitBody()}</div>`,
-    footer: '<button class="btn ghost" data-act="close-modal">返回</button><button class="btn primary" data-act="p-portrait-save">确认写入</button>',
+    footer: '<button class="btn ghost" data-act="close-modal">返回</button><button class="btn primary" data-act="p-portrait-save">保存</button>',
   });
 }
 
@@ -2168,21 +2219,30 @@ const actions = {
     await pPatch({ entity: { rank } });
     render();
   },
+  'p-lv-inc': () => { S.pLv = Math.min(P_LV_MAX, pLvNow() + 1); if (S.personality) render(); },
+  'p-lv-dec': () => { S.pLv = Math.max(P_LV_MIN, pLvNow() - 1); if (S.personality) render(); },
   'p-portrait': async () => { try { await openPortraitModal(); } catch (e) { toast(e.message, 'error'); } },
   'p-portrait-kind': (el) => {
     if (!S.pf) return;
     S.pf.kind = el.dataset.kind;
-    S.pf.dataUrl = '';
+    S.pf.dataUrl = (pPfDraft(S.pf.kind) || {}).dataUrl || '';
     const host = $('.pf-host');
     if (host) host.innerHTML = portraitBody();
   },
   'p-portrait-save': async () => {
-    if (!S.pf || !S.pf.dataUrl) { toast('先选择一张 .png 图片', 'warn'); return; }
+    if (!S.pf) return;
+    const kinds = ['profile', 'cg'].filter((k) => S.pf[k] && S.pf[k].dirty && S.pf[k].dataUrl);
+    if (!kinds.length) { toast('还没有改动任何一张图', 'warn'); return; }
     try {
-      const res = await api('/api/personality/portrait', { method: 'POST', body: { name: S.selected, id: S.personality.id, kind: S.pf.kind, dataUrl: S.pf.dataUrl } });
+      const done = [];
+      for (const kind of kinds) {
+        const res = await api('/api/personality/portrait', { method: 'POST', body: { name: S.selected, id: S.personality.id, kind, dataUrl: S.pf[kind].dataUrl } });
+        done.push(res.rel || ('custom_sprites/' + kind + '_' + S.personality.id + '.png'));
+        S.pf[kind].dirty = false;
+      }
       closeModal();
       await loadPortrait();
-      toast('已写入 ' + (res.rel || ('custom_sprites/' + S.pf.kind + '_' + S.personality.id + '.png')), 'ok');
+      toast('已保存 ' + done.length + ' 张：' + done.join('、'), 'ok');
     } catch (e) { toast(e.message, 'error'); }
   },
   'p-jump-skill': async (el) => {
@@ -2761,13 +2821,29 @@ document.addEventListener('input', (e) => {
   if (t.dataset && t.dataset.info) { scheduleInfo(); }
 });
 
+document.addEventListener('wheel', (e) => {
+  const el = e.target && e.target.closest && e.target.closest('.p-lv, .p-bar-wrap');
+  if (!el || !S.personality) return;
+  e.preventDefault();
+  const step = e.deltaY > 0 ? -1 : 1;
+  S.pLv = Math.max(P_LV_MIN, Math.min(P_LV_MAX, pLvNow() + step));
+  pLvDomUpdate();
+}, { passive: false });
+
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'pf-file') {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     if (!/\.png$/i.test(f.name) && f.type !== 'image/png') { toast('只接受 .png 图片', 'error'); return; }
     const rd = new FileReader();
-    rd.onload = () => { S.pf = { ...(S.pf || { kind: 'profile' }), dataUrl: String(rd.result) }; const img = document.getElementById('pf-preview'); if (img) img.src = String(rd.result); };
+    rd.onload = () => {
+      const cur = pPfDraft();
+      cur.dataUrl = String(rd.result);
+      cur.dirty = true;
+      S.pf.dataUrl = cur.dataUrl;
+      const img = document.getElementById('pf-preview');
+      if (img) img.src = cur.dataUrl;
+    };
     rd.readAsDataURL(f);
     return;
   }

@@ -1,4 +1,5 @@
 import * as http from 'node:http';
+import { warmupCaches } from '../lethe/warmup.mjs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { AutoSaver } from '../lethe/autosave.mjs';
 import { markCleanExit, markRunning } from '../lethe/state.mjs';
 import { migrateToLcw } from '../lethe/lcw.mjs';
 
-export const VERSION = '0.9.8';
+export const VERSION = '0.9.9';
 const WEB_ROOT = join(SRC_DIR, 'web');
 
 export function createServer({ token, state, log, session, autosave } = {}) {
@@ -91,6 +92,9 @@ export function startServer({ port = 3081, host = '127.0.0.1', explicit, locateN
 
   // 存储迁移：旧位置（.lethe-workbench、C 盘 projects）→ <Lethe>/LCW
   if (state.letheRoot) { try { migrateToLcw(state.letheRoot, log); } catch { /* 迁移失败不阻塞 */ } }
+
+  // 启动预热：把词表/外观扫描提前做掉，后续页面不再出现「正在加载」
+  if (state.letheRoot) warmupCaches(state.letheRoot, log).catch(() => {});
 
   // 运行标记：下次启动可检测“未被正常关闭”
   if (state.letheRoot) markRunning(state.letheRoot);

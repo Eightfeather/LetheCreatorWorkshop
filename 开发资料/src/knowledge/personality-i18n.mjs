@@ -114,6 +114,26 @@ export function i18nTables(letheRoot, force = false) {
     if (zh && !unitKeyword[id]) unitKeyword[id] = zh;
   }
 
+  /* 近似归一（v0.9.9）：Mod 常把官方规范 id 写成变体，官方只注册规范 id。
+     仅在精确 id 缺失时兜底，并记录供界面标注「≈ 近似」。 */
+  const TAG_ALIASES = {
+    Abyssal_Hunter: 'ABYSSAL_HUNTERS',
+    CROSSED_Aegir: 'AEGIR',
+    SPIDER_HOUSE_FATHER: 'SPIDER_HOUSE',
+    PEQUOD_CAPTAIN: 'PEQUOD_CREW',
+    WILD_HUNT_HEATH: 'WILD_HUNT',
+  };
+  const unitApprox = [];
+  const assocApprox = [];
+  for (const [aid, to] of Object.entries(TAG_ALIASES)) {
+    if (unitKeyword[aid] || association[aid]) continue;
+    const zh0 = unitKeyword[to] || association[to] || '';
+    if (!zh0) continue;
+    unitKeyword[aid] = zh0;
+    association[aid] = zh0;
+    unitApprox.push(aid);
+    assocApprox.push(aid);
+  }
   const unitUse = {};
   const assocUse = {};
   const scanDoc = (doc) => {
@@ -147,7 +167,7 @@ export function i18nTables(letheRoot, force = false) {
   for (const m of mods) scanDir(join(letheRoot, 'mods', m, 'custom_limbus_data', 'personality'));
 
   cache = {
-    sins, skillKeywords, rankLabel: RANK_LABEL, unitKeyword, association, unitUse, assocUse,
+    sins, skillKeywords, rankLabel: RANK_LABEL, unitKeyword, association, unitUse, assocUse, unitApprox, assocApprox,
     unitDeprecated, assocDeprecated,
     lang: { dirs: langDirs(letheRoot), filledUnit: langFilledUnit, filledAssoc: langFilledAssoc },
     at: new Date().toISOString(),

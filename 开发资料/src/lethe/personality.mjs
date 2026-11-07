@@ -538,7 +538,7 @@ export function appearanceOptions(letheRoot) {
 
 /* 原版外观目录：人格实体 + 全量数据里扫到的 appearance 资源名（含皮肤 / EGO 同化） */
 let _appAll = null;
-function allAppearanceStrings(letheRoot) {
+export function allAppearanceStrings(letheRoot) {
   const root = join(letheRoot, 'dumpedData');
   if (!fs.existsSync(root)) return [];
   let stamp = '';

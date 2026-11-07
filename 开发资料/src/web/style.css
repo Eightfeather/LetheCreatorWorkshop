@@ -1657,3 +1657,11 @@ body.mod-reordering { cursor: grabbing; }
 .layout.edit.module-only { grid-template-columns: minmax(0, 1fr); }
 .layout.edit.module-only .edit-pane { width: 100%; }
 .tag.ok { border-color: #4a6b4a; color: #9fc7a0; }
+
+/* v0.9.9：血条前的等级预览（1–100） */
+.p-lv{display:inline-flex;align-items:center;height:20px;padding:0 6px;border:1px solid var(--gold);border-radius:3px;
+  color:var(--gold);font-size:11.5px;font-weight:700;letter-spacing:.04em;background:#1d1712;cursor:ns-resize;user-select:none}
+.p-lv-btn{width:18px;height:18px;padding:0;line-height:1;border:1px solid var(--line);border-radius:3px;
+  background:#191410;color:#d9c8a6;font-size:12px;cursor:pointer}
+.p-lv-btn:hover{border-color:var(--gold);color:var(--gold)}
+.p-bar-wrap{display:flex;align-items:center;gap:6px}
