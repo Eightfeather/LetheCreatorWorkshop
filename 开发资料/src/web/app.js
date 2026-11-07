@@ -3257,18 +3257,29 @@ function renderSkillScriptCards(group) {
 
 function renderSkillGroups(doc) {
   const groups = Array.isArray(doc.scriptGroups) ? doc.scriptGroups : [];
-  const total = groups.reduce((n, g) => n + ((g.parsed && g.parsed.rows.length) || 0), 0);
-  if (!total) { return ''; }
+  const nMod = groups.reduce((n, g) => n + ((g.scripts && g.scripts.length) || 0), 0);
+  const nPlain = groups.reduce((n, g) => n + ((g.plain && g.plain.length) || 0), 0);
+  const nAll = nMod + nPlain;
+  if (!nAll) { return ''; }
   const blocks = groups.map((g) => {
-    const cards = renderSkillScriptCards(g);
-    const plain = (g.plain || []).length
-      ? '<div class="hint muted">非模块脚本（游戏内置效果，不在编辑器里编辑）：' + g.plain.map((x) => '「' + x + '」').join(' ') + '</div>'
+    const cm = (g.scripts && g.scripts.length) || 0;
+    const cp = (g.plain && g.plain.length) || 0;
+    if (!cm && !cp) return '';
+    const cards = cm ? renderSkillScriptCards(g) : '';
+    const plain = cp
+      ? '<div class="hint muted">游戏内置脚本（只读，不在编辑器里编辑）：' + g.plain.map((x) => '「' + x + '」').join(' ') + '</div>'
       : '';
-    return '<div class="sg-block"><div class="col-title">' + esc(g.label) + ' <span class="muted">（' + ((g.parsed && g.parsed.rows.length) || 0) + ' 条 Modular 脚本）</span></div>'
-      + plain + cards + '</div>';
+    const cnt = [];
+    if (cm) cnt.push('Modular ' + cm + ' 条');
+    if (cp) cnt.push('游戏内置 ' + cp + ' 条');
+    return '<div class="sg-block"><div class="col-title">' + esc(g.label) + ' <span class="muted">（' + cnt.join(' / ') + '）</span></div>'
+      + cards + plain + '</div>';
   }).join('');
-  return '<div class="pr-wrap"><div class="col-title">已识别的脚本 <span class="muted">（技能级与每枚硬币，共 ' + total + ' 条）</span></div>'
-    + '<div class="hint muted">这里只做识别：改脚本请用上方的置入区，或到模块编辑里改模块。</div>'
+  const tip = nPlain && !nMod
+    ? '这个技能目前只有游戏内置脚本，没有 Modular 积木脚本。'
+    : '这一块只做识别：改脚本请用上方的置入区，或到模块编辑里改模块。';
+  return '<div class="pr-wrap"><div class="col-title">已识别的脚本 <span class="muted">（共 ' + nAll + ' 条：Modular ' + nMod + ' 条、游戏内置 ' + nPlain + ' 条）</span></div>'
+    + '<div class="hint muted">' + tip + '</div>'
     + blocks + '</div>';
 }
 

@@ -74,31 +74,57 @@ function vanillaBuffLocale(letheRoot, id) {
   return { name: String(hit.name || ''), desc: String(hit.desc || '') };
 }
 function isModularScript(text) {
-  return /TIMING:/.test(String(text || ''));
+  const t = String(text || '').trim();
+  if (!t) return false;
+  if (/TIMING:|LOOP:|^Modular\//.test(t)) return true;
+  if (/\bVALUE_\d+\s*:/.test(t)) return true;
+  if (/\b(IF|IFNOT|CONTINUEIF)\s*\(/.test(t)) return true;
+  if (/\b(CLEARVALUES|RESETWHENUSE|LUAMAIN|EXPECTED)\b/.test(t)) return true;
+  if (/^[A-Za-z_][A-Za-z0-9_]*\(/.test(t)) return true;
+  return false;
 }
 
-/** 识别技能里已有的 Modular 脚本：技能级（skillData[0]）+ 每枚硬币；并匹配到编辑器内的模块 */
+/**
+ * 识别技能里已有的脚本：遍历 **所有** skillData（不止第 1 段）+ 技能动作 + 动作段 + 每枚硬币；
+ * 每段单独成组，并匹配到编辑器内的模块。
+ */
 function skillScriptGroups(letheRoot, entity) {
   const byCode = moduleCodeIndex(letheRoot);
-  const sd = ((entity && entity.skillData) || [])[0] || {};
+  const sds = Array.isArray(entity && entity.skillData) ? entity.skillData : [];
   const wrap = (list) => {
     const scripts = (list || []).map((x) => String((x && x.scriptName) || '')).filter(Boolean);
     const modular = scripts.filter(isModularScript);
     const plain = scripts.filter((x) => !isModularScript(x));
-    const parsed = parseScripts(modular);
+    const parsed = modular.length ? parseScripts(modular) : { scripts: [], rows: [] };
     return {
       scripts: modular,
       plain,
       parsed,
       matchedModules: modular.map((code) => byCode.get(canonicalCode(code)) || null),
+      fileTotal: scripts.length,
     };
   };
   const groups = [];
-  const top = wrap(sd.abilityScriptList);
-  if (top.scripts.length || top.plain.length) groups.push({ kind: 'skill', label: '技能级', index: -1, ...top });
-  ((sd.coinList) || []).forEach((c, i) => {
-    const g = wrap(c && c.abilityScriptList);
-    if (g.scripts.length || g.plain.length) groups.push({ kind: 'coin', label: '硬币 ' + (i + 1), index: i, ...g });
+  sds.forEach((sd, si) => {
+    const sdx = si + 1;
+    const suffix = si === 0 ? '' : '（第 ' + sdx + ' 段）';
+    const top = wrap(sd && sd.abilityScriptList);
+    if (top.fileTotal) groups.push({ kind: 'skill', label: '技能级' + suffix, sd: si, index: -1, ...top });
+    const act = String((sd && sd.actionScript) || '').trim();
+    if (act) {
+      const one = wrap([{ scriptName: act }]);
+      groups.push({ kind: 'action', label: '技能动作' + suffix, sd: si, index: -1, ...one });
+    }
+    const actionList = Array.isArray(sd && sd.actionList) ? sd.actionList : [];
+    actionList.forEach((a, ai) => {
+      const g = wrap(a && a.abilityScriptList);
+      if (g.fileTotal) groups.push({ kind: 'actionList', label: '动作段 ' + (ai + 1) + suffix, sd: si, index: ai, ...g });
+    });
+    const coins = Array.isArray(sd && sd.coinList) ? sd.coinList : [];
+    coins.forEach((c, i) => {
+      const g = wrap(c && c.abilityScriptList);
+      if (g.fileTotal) groups.push({ kind: 'coin', label: '硬币 ' + (i + 1) + suffix, sd: si, index: i, ...g });
+    });
   });
   return groups;
 }
