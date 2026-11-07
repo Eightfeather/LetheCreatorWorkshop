@@ -3203,14 +3203,14 @@ const SK_SIN_COLOR = {
   AZURE: "#2C4F7C", INDIGO: "#3B3A6E", VIOLET: "#6A3A72", WHITE: "#8A8A8A", BLACK: "#3A3A3A", NEUTRAL: "#5A5A5A",
 };
 function skSinColor(sin) { return SK_SIN_COLOR[String(sin || "").toUpperCase()] || SK_SIN_COLOR.NEUTRAL; }
-function skFrameClass(atk, sin) {
-  const a = String(atk || "").toUpperCase();
-  const key = a === "SLASH" ? "slash" : a === "HIT" ? "hit" : a === "PENETRATE" ? "penetrate" : "";
-  const s2 = String(sin || "").toUpperCase();
-  const sk = ["CRIMSON","SCARLET","AMBER","SHAMROCK","AZURE","INDIGO","VIOLET"].includes(s2) ? s2.toLowerCase() : "";
-  if (!key || !sk) return "";
-  return "sk-frame-" + key + "_" + sk;
+function skFrameClass(sin, tier) {
+  // 技能图标框：罪孽 × 等级档位（1/2/3），其余用“常规”
+  const key = { CRIMSON: "crimson", SCARLET: "scarlet", AMBER: "amber", SHAMROCK: "shamrock", AZURE: "azure", INDIGO: "indigo", VIOLET: "violet" }[String(sin || "").toUpperCase()];
+  const t = Math.min(3, Math.max(1, Math.round(Number(tier) || 0)));
+  if (!key || !t) return "sk-frame-normal";
+  return "sk-frame-" + key + "_" + t;
 }
+
 
 function renderSkillPreview(sk) {
   const info = sk.info || {};
@@ -3231,8 +3231,8 @@ function renderSkillPreview(sk) {
     + "<div class=\"sk-base\" title=\"基础威力\">" + esc(String(Number(info.basePower) || 0)) + "</div>"
     + "<div class=\"sk-icon-col\">"
     + (powerText ? "<div class=\"sk-coinval\" title=\"第 1 枚硬币威力（变动值）\">" + esc(powerText) + "</div>" : "<div class=\"sk-coinval\"></div>")
-    + "<div class=\"sk-icon-wrap " + skFrameClass(info.physical, sin) + "\" style=\"--skc:" + col + "\">"
-    + "<span class=\"sk-icon\" style=\"" + icon + "\"></span>"
+    + "<div class=\"sk-icon-wrap " + skFrameClass(sin, info.skillTier) + "\" style=\"--skc:" + col + "\">"
+    + "<span class=\"sk-lvl\"></span><span class=\"sk-icon\" style=\"" + icon + "\"></span>" + "<span class=\"sk-sin\"></span>"
     + "</div></div>"
     + "<div class=\"sk-name-col\">"
     + "<div class=\"sk-coins\">" + coinIcons + "</div>"
@@ -3591,7 +3591,7 @@ function updateSkillDom() {
     const info = S.skill.info || {};
     const sin = String(info.sin || "").toUpperCase();
     const wrap = pv.querySelector(".sk-icon-wrap");
-    if (wrap) { wrap.className = "sk-icon-wrap " + skFrameClass(info.physical, sin); wrap.style.setProperty("--skc", skSinColor(sin)); }
+    if (wrap) { wrap.className = "sk-icon-wrap " + skFrameClass(sin, info.skillTier); wrap.style.setProperty("--skc", skSinColor(sin)); }
     const nm = pv.querySelector(".sk-name");
     if (nm) nm.style.background = skSinColor(sin);
     const coins = (S.skill.code && S.skill.code.coins) || [];

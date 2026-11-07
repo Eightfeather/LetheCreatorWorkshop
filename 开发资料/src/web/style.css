@@ -1706,3 +1706,11 @@ body.mod-reordering { cursor: grabbing; }
 
 /* v0.9.17：技能图标裁成六边形，与 wiki 成品边框内框对齐 */
 .sk-icon{clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);width:72px;height:72px;object-fit:cover}
+/* ===== 技能图标三层叠加（等级框 → 七边形图标 → 属性框），v0.9.18 ===== */
+.sk-icon-wrap{position:relative;width:96px;height:96px;display:block}
+.sk-icon-wrap .sk-lvl,.sk-icon-wrap .sk-sin{position:absolute;inset:0;background-size:100% 100%;background-repeat:no-repeat;background-position:center;pointer-events:none}
+.sk-icon-wrap .sk-lvl{z-index:1}
+.sk-icon-wrap .sk-sin{z-index:3}
+.sk-icon-wrap .sk-icon{position:absolute;left:16%;top:16%;width:68%;height:68%;z-index:2;border-radius:0;background-color:#241d19;background-size:cover;background-position:center;box-shadow:none;-webkit-clip-path:polygon(73% 4%,98% 40%,90% 80%,50% 100%,10% 80%,2% 40%,27% 4%);clip-path:polygon(73% 4%,98% 40%,90% 80%,50% 100%,10% 80%,2% 40%,27% 4%)}
+.sk-lvl{background-image:var(--sk-lvl)}
+.sk-sin{background-image:var(--sk-sin)}
