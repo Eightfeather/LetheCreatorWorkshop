@@ -20,7 +20,8 @@ if (fs.existsSync(fdir)) {
   for (const f of fs.readdirSync(fdir).filter((x) => /\.png$/i.test(x)).sort()) {
     const name = f.replace(/\.png$/i, '').replace(/[^A-Za-z0-9_-]/g, '_');
     const u = uri(path.join(fdir, f));
-    out.push('.sk-frame-' + name + '{-webkit-mask-image:url("' + u + '");mask-image:url("' + u + '")}');
+    out.push('.sk-frame-' + name + '{--sk-frame:url("' + u + '")}');
+    out.push('.sk-frame-' + name + '::before{-webkit-mask-image:var(--sk-frame);mask-image:var(--sk-frame)}');
     n++;
   }
 }

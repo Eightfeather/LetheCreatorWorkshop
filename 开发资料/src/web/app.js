@@ -3231,7 +3231,7 @@ function renderSkillPreview(sk) {
     + "<div class=\"sk-base\" title=\"基础威力\">" + esc(String(Number(info.basePower) || 0)) + "</div>"
     + "<div class=\"sk-icon-col\">"
     + (powerText ? "<div class=\"sk-coinval\" title=\"第 1 枚硬币威力（变动值）\">" + esc(powerText) + "</div>" : "<div class=\"sk-coinval\"></div>")
-    + "<div class=\"sk-icon-wrap " + skFrameClass(sin, Number(info.skillTier) || sk.skillTier) + "\">"
+    + "<div class=\"sk-icon-wrap " + skFrameClass(sin, Number(info.skillTier) || sk.skillTier) + "\" style=\"--skc:" + col + "\">"
     + "<span class=\"sk-icon\" style=\"" + icon + "\"></span>"
     + "</div></div>"
     + "<div class=\"sk-name-col\">"
@@ -3591,7 +3591,7 @@ function updateSkillDom() {
     const info = S.skill.info || {};
     const sin = String(info.sin || "").toUpperCase();
     const wrap = pv.querySelector(".sk-icon-wrap");
-    if (wrap) wrap.className = "sk-icon-wrap " + skFrameClass(sin, Number(info.skillTier) || S.skill.skillTier);
+    if (wrap) { wrap.className = "sk-icon-wrap " + skFrameClass(sin, Number(info.skillTier) || S.skill.skillTier); wrap.style.setProperty("--skc", skSinColor(sin)); }
     const nm = pv.querySelector(".sk-name");
     if (nm) nm.style.background = skSinColor(sin);
     const coins = (S.skill.code && S.skill.code.coins) || [];
