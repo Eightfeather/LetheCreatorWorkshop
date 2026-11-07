@@ -1,6 +1,6 @@
 ﻿/* 由 tools/gen-skill-assets.cjs 生成：把 src/web/ui-assets/skill 下的 PNG 转成 data-URI CSS
    重新生成：node tools/gen-skill-assets.cjs
-   帧图用 mask-image，配色由 CSS background-color 提供（游戏里也是靠着色） */
+   帧图直接作为 background-image 使用（原图自带纹理，不再上色） */
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
@@ -21,7 +21,7 @@ if (fs.existsSync(fdir)) {
     const name = f.replace(/\.png$/i, '').replace(/[^A-Za-z0-9_-]/g, '_');
     const u = uri(path.join(fdir, f));
     out.push('.sk-frame-' + name + '{--sk-frame:url("' + u + '")}');
-    out.push('.sk-frame-' + name + '::before{-webkit-mask-image:var(--sk-frame);mask-image:var(--sk-frame)}');
+    out.push('.sk-frame-' + name + '::before{background-image:var(--sk-frame)}');
     n++;
   }
 }
