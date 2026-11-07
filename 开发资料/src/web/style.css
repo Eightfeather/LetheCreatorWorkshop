@@ -1665,3 +1665,16 @@ body.mod-reordering { cursor: grabbing; }
   background:#191410;color:#d9c8a6;font-size:12px;cursor:pointer}
 .p-lv-btn:hover{border-color:var(--gold);color:var(--gold)}
 .p-bar-wrap{display:flex;align-items:center;gap:6px}
+
+/* v0.9.10 深一层：搜索浮层容器（结果列表为输入框的兄弟节点，用 wrap 承接定位） */
+.p-search-wrap{position:relative}
+.p-search-wrap .p-res-list{position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:80;max-height:280px;overflow:auto;
+  margin:0;padding:6px;background:#1b1613;border:1px solid var(--line);border-radius:4px;
+  box-shadow:0 12px 28px rgba(0,0,0,.6);display:none}
+.p-search-wrap.typing .p-res-list{display:block}
+.p-swrap{position:relative;display:block}
+.p-swrap .p-taghits{position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:80;max-height:250px;overflow:auto;
+  display:none;padding:6px;background:#1b1613;border:1px solid var(--line);border-radius:4px;
+  box-shadow:0 12px 28px rgba(0,0,0,.6);flex-wrap:wrap;gap:4px}
+.p-swrap.typing .p-taghits{display:flex}
+.p-swrap .p-taghits:empty{display:none}

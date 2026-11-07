@@ -1148,8 +1148,7 @@ function pTagSearch(list, kind) {
   const full = cur.length >= 10;
   return `<div class="p-tag-block">
     <div class="p-tag-line"><span class="p-tag-mini">已带</span><span class="p-tag-body">${pTagChips(cur, kind)}</span></div>
-    <div class="p-tag-line"><span class="p-tag-mini">搜索</span><span class="p-tag-body"><input class="p-search p-tagq" id="p-tagq-${kind}" data-tagq="${kind}" placeholder="输入${label}词条名称或 id（已选 ${cur.length}/10）" value="${esc(q)}" autocomplete="off" ${full ? 'disabled' : ''}></span></div>
-    <div class="p-tag-line"><span class="p-tag-mini">备选</span><span class="p-tag-body p-chips p-taghits" id="p-taghits-${kind}">${pTagHitsHtml(kind)}</span></div>
+    <div class="p-tag-line"><span class="p-tag-mini">搜索</span><span class="p-tag-body"><span class="p-swrap${q ? ' typing' : ''}"><input class="p-search p-tagq" id="p-tagq-${kind}" data-tagq="${kind}" placeholder="输入${label}词条名称或 id（已选 ${cur.length}/10）" value="${esc(q)}" autocomplete="off" ${full ? 'disabled' : ''}><span class="p-chips p-taghits" id="p-taghits-${kind}">${pTagHitsHtml(kind)}</span></span></span></div>
   </div>`;
 }
 
@@ -1172,8 +1171,8 @@ function pPassiveSection(st, resHtml) {
   const kindSel = `<select id="p-passive-kind" title="被动类别"><option value="battle">战斗被动</option><option value="supporter">支援被动</option></select>`;
   const lvlSel = '';
   return pSection('被动', `${body}
-    <div class="p-search-row">${pSearchBox('p-passive-q', '输入被动 id 或名称搜索', S.pPassiveQ)}</div>
-    <div class="p-res-list" id="p-passive-res">${resHtml || ''}</div>
+    <div class="p-search-wrap${S.pPassiveQ ? ' typing' : ''}"><div class="p-search-row">${pSearchBox('p-passive-q', '输入被动 id 或名称搜索', S.pPassiveQ)}</div>
+    <div class="p-res-list" id="p-passive-res">${resHtml || ''}</div></div>
     <div class="p-add-row">${kindSel}${lvlSel}<button class="btn ghost sm" data-act="p-passive-add">＋ 加入</button></div>
     <div class="hint muted">被动默认写入同步等级 4（私服默认全员同步 4）。</div>`);
 }
@@ -1309,7 +1308,7 @@ function renderPersonalityDetail() {
           ${pRow('防御修正值', `<input type="text" inputmode="decimal" data-num="1" data-field="entity.defCorrection" value="${esc(e.defCorrection ?? '')}" placeholder="-999 ~ +999">`, '-999 ~ +999')}
           ${pRow('速度区间', `<span class="p-speed-pair"><input type="text" inputmode="decimal" data-num="1" step="1" data-field="entity.speedMin" value="${esc(minSp)}" placeholder="最小"><span class="p-speed-tilde">~</span><input type="text" inputmode="decimal" data-num="1" step="1" data-field="entity.speedMax" value="${esc(maxSp)}" placeholder="最大"></span>`)}
         </div>
-        ${pRow('外观资源名', `<input id="p-app" data-field="entity.appearance" value="${esc(e.appearance ?? '')}" placeholder="可手输任意资源名，或点右侧展开挑选" autocomplete="off"><button class="btn ghost sm p-app-toggle" data-act="p-app-toggle">${S.pAppOpen ? '收起' : '展开'}</button>` + pAppPanel(e))}
+        ${pRow('外观资源名', `<span class="p-app-wrap${S.pAppOpen ? ' typing' : ''}"><input id="p-app" data-field="entity.appearance" value="${esc(e.appearance ?? '')}" placeholder="可手输任意资源名，或点右侧展开挑选" autocomplete="off"><button class="btn ghost sm p-app-toggle" data-act="p-app-toggle">${S.pAppOpen ? '收起' : '展开'}</button>` + pAppPanel(e) + '</span>')}
       `)}
 
       ${pSection('血量与混乱阈值', `
@@ -1327,18 +1326,18 @@ function renderPersonalityDetail() {
         return pRow(ATK_ZH[k], `<input type="text" inputmode="decimal" data-num="1" step="0.05" min="0" max="10" data-field="entity.resist.${k}" value="${esc(hit ? hit.value : '')}" placeholder="倍率">`);
       }).join(''))}
 
-      ${pSection('技能', `<div class="p-search-row">${pSearchBox('p-skill-q', '输入技能 id 或名称搜索（原版 + 全部 Mod）', S.pSkillQ)}</div>
-        <div class="p-res-list" id="p-skill-res">${results('skill')}</div>
+      ${pSection('技能', `<div class="p-search-wrap${S.pSkillQ ? ' typing' : ''}"><div class="p-search-row">${pSearchBox('p-skill-q', '输入技能 id 或名称搜索（原版 + 全部 Mod）', S.pSkillQ)}</div>
+        <div class="p-res-list" id="p-skill-res">${results('skill')}</div></div>
         ${pSkillRows(e)}
         <div class="p-divider"><span>守备技能</span></div>
-        <div class="p-search-row">${pSearchBox('p-def-q', '输入守备技能 id 搜索', S.pDefQ)}</div>
-        <div class="p-res-list" id="p-def-res">${results('def')}</div>
+        <div class="p-search-wrap${S.pDefQ ? ' typing' : ''}"><div class="p-search-row">${pSearchBox('p-def-q', '输入守备技能 id 搜索', S.pDefQ)}</div>
+        <div class="p-res-list" id="p-def-res">${results('def')}</div></div>
         ${pDefRows(e)}`)}
 
       ${pPassiveSection(st, results('passive'))}
 
-      ${pSection('上场初始 Buff', `<div class="p-search-row">${pSearchBox('p-buff-q', '输入 buff id 搜索（原版 + 全部 Mod）', S.pBuffQ)}</div>
-        <div class="p-res-list" id="p-buff-res">${results('buff')}</div>
+      ${pSection('上场初始 Buff', `<div class="p-search-wrap${S.pBuffQ ? ' typing' : ''}"><div class="p-search-row">${pSearchBox('p-buff-q', '输入 buff id 搜索（原版 + 全部 Mod）', S.pBuffQ)}</div>
+        <div class="p-res-list" id="p-buff-res">${results('buff')}</div></div>
         ${pBuffRows(e)}
         <div class="p-hint muted">进入战斗时按默认强度生效；用上面的搜索框添加条目。</div>`)}
 
@@ -2186,6 +2185,16 @@ const actions = {
     await pPatch({ entity: { initBuffList: groups } });
     render();
   },
+  'desc-sugg': (el) => {
+    const tok = el.dataset.tok || '';
+    const best = el.dataset.best || '';
+    const ta = S.lastDescEl || document.getElementById('skill-desc') || document.getElementById('p-desc') || document.getElementById('buff-desc');
+    if (!ta || !tok || !best) { toast('找不到要替换的描述框', 'warn'); return; }
+    ta.value = String(ta.value || '').split('[' + tok + ']').join('[' + best + ']');
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    toast('已把 [' + tok + '] 换成 [' + best + ']', 'ok');
+  },
+
   'p-tag-add2': async (el) => {
     const kind = el.dataset.kind;
     const field = P_TAG_FIELDS[kind];
@@ -2688,6 +2697,7 @@ document.addEventListener('compositionend', (e) => {
 document.addEventListener('input', (e) => {
   if (imeComposing || e.isComposing) return;
   const t = e.target;
+  if (t && (t.id === 'skill-desc' || t.id === 'p-desc' || t.id === 'buff-desc' || (t.classList && t.classList.contains('coin-desc')))) S.lastDescEl = t;
 
   /* ---- 镜牢编辑：输入即写回草稿（不重绘，避免打断输入） ---- */
   if (t.id === 'pk-q') {
@@ -2983,6 +2993,20 @@ document.addEventListener('drop', (e) => {
   S.dragging = null;
   if (!mid) return;
   placeModule(mid, z.dataset.drop, z.dataset.index);
+});
+
+document.addEventListener('focusin', (e) => {
+  const inp = e.target && e.target.closest ? e.target.closest('input') : null;
+  if (!inp) return;
+  const row = inp.closest('.p-search-wrap') || inp.closest('.p-swrap') || inp.closest('.p-tag-line') || inp.closest('.p-app-wrap');
+  if (row) row.classList.add('typing');
+});
+document.addEventListener('focusout', (e) => {
+  const inp = e.target && e.target.closest ? e.target.closest('input') : null;
+  if (!inp) return;
+  const row = inp.closest('.p-search-wrap') || inp.closest('.p-swrap') || inp.closest('.p-tag-line') || inp.closest('.p-app-wrap');
+  if (!row) return;
+  setTimeout(() => { if (!row.contains(document.activeElement)) row.classList.remove('typing'); }, 200);
 });
 
 document.addEventListener('keydown', (e) => {
@@ -3298,11 +3322,16 @@ function descStateOf(kind, i) {
 function descCheckHtml(st) {
   const unk = st.unknown || [];
   const okCount = (st.tokens || []).filter((t) => t.kind !== 'unknown').length;
+  const sugg = (st.suggestions || []).filter((x) => x && x.best);
+  const suggHtml = sugg.length
+    ? '<div class="desc-sugg-list">你可能想输入：' + sugg.map((x) => '<button class="sugg" data-act="desc-sugg" data-tok="' + esc(x.tok) + '" data-best="' + esc(x.best) + '" title="点击替换">[' + esc(x.tok) + '] → [' + esc(x.best) + ']</button>').join('') + '</div>'
+    : '';
   return '<div class="desc-check ' + (unk.length ? 'bad' : 'ok') + '">'
     + (unk.length ? '⚠ 有 ' + unk.length + ' 个关键词未识别：' + unk.map((u) => '[' + u + ']').join(' ')
       : '✓ 关键词检查通过（' + okCount + ' 个）')
-    + '</div>';
+    + '</div>' + suggHtml;
 }
+
 function descKwListHtml() {
   const timings = (S.keywords && S.keywords.timings) || [];
   const buffs = (S.keywords && S.keywords.buffs) || [];
@@ -3402,7 +3431,7 @@ async function flushCoinDesc(index) {
 async function checkText(text) {
   if (!text) return { tokens: [], unknown: [], game: '' };
   const res = await api('/api/description/check', { method: 'POST', body: { text } });
-  return { tokens: res.tokens || [], unknown: res.unknown || [], game: res.game || '' };
+  return { tokens: res.tokens || [], unknown: res.unknown || [], suggestions: res.suggestions || [], game: res.game || '' };
 }
 
 async function analyzeAll() {

@@ -25,7 +25,7 @@ import {
   updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram } from '../lethe/meta.mjs';
 import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex } from '../lethe/passives.mjs';
 import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex } from '../lethe/buffs.mjs';
-import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, toGameText } from '../lethe/keywords.mjs';
+import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
 import { TIMING_ARGS } from '../knowledge/timing-args.mjs';
 import { canonicalCode, parseScripts } from '../lethe/program-parse.mjs';
 import { applyMd, applyMdAll, deleteMd, fromGameEntity, getMd, listMd, mdSchemas, nextMdId, removeLanded, saveMd } from '../lethe/mdtables.mjs';
@@ -716,7 +716,8 @@ export function buildApi(ctx) {
       const tables = keywordTables(letheRoot);
       const text = String(body?.text ?? '');
       const res = analyzeDescription(text, tables);
-      return { ok: true, ...res, game: toGameText(text, tables) };
+      const suggestions = suggestUnknown(res.unknown || [], tables);
+      return { ok: true, ...res, suggestions, game: toGameText(text, tables) };
     },
 
     'GET /api/skills': (q) => {

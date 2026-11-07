@@ -347,3 +347,60 @@ export function fromGameText(text, tables) {
     return hit ? '[' + hit + ']' : whole;
   });
 }
+
+/* v0.9.10：未识别关键词的「最佳匹配」建议（供保存提示用） */
+function editDist(a, b) {
+  const s1 = String(a); const s2 = String(b);
+  const m = s1.length; const n = s2.length;
+  if (!m) return n; if (!n) return m;
+  let prev = new Array(n + 1);
+  let cur = new Array(n + 1);
+  for (let j = 0; j <= n; j += 1) prev[j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j += 1) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    const t = prev; prev = cur; cur = t;
+  }
+  return prev[n];
+}
+
+function suggestionPool(tables) {
+  const out = [];
+  const push = (name, kind) => {
+    const v = String(name || '').trim();
+    if (!v || v.length > 24) return;
+    out.push({ name: v, kind });
+  };
+  for (const t of (tables.timings || [])) push(t.zh, 'timing');
+  for (const b of (tables.buffs || [])) push(b.zh, 'buff');
+  for (const k of (tables.keywords || [])) push(k.zh, 'keyword');
+  for (const g of (tables.tags || [])) push(g.zh, 'tag');
+  const seen = new Set();
+  return out.filter((x) => (seen.has(x.name) ? false : (seen.add(x.name), true)));
+}
+
+/** 给一个未识别的词，返回最接近的已注册中文名（相似度 0–1）。 */
+export function suggestName(token, tables) {
+  const t = String(token || '').trim();
+  if (!t) return null;
+  const pool = suggestionPool(tables);
+  let best = null;
+  for (const c of pool) {
+    const d = editDist(t, c.name);
+    const score = 1 - d / Math.max(t.length, c.name.length);
+    const bonus = (c.name.includes(t) || t.includes(c.name)) ? 0.18 : 0;
+    const total = score + bonus;
+    if (!best || total > best.score) best = { tok: t, best: c.name, kind: c.kind, score: Number(total.toFixed(3)) };
+  }
+  if (!best || best.score < 0.45) return null;
+  return best;
+}
+
+/** 批量：给 analyzeDescription 的 unknown 列表配建议。 */
+export function suggestUnknown(unknown, tables) {
+  const list = (unknown || []).map((u) => suggestName(u, tables)).filter(Boolean);
+  return list.slice(0, 6);
+}
