@@ -1,7 +1,7 @@
 // 生成 src/web/ui-assets/skill-icons.css
 // 每档 = 等级底板(底) + 七边形插画(中) + 属性框(顶)
-// 额外从「属性框」PNG 量出中心空洞，写成 --sk-hw/--sk-hh（相对 .sk-icon-wrap 的百分比），
-// 让插画正好塞进框内、不再溢出（用户反馈：插画上方多余部分超出边框）。
+// 为避免「框被压扁」：每档记录帧图真实宽高比 --sk-ar（帧盒用 aspect-ratio 保持比例，只改高度不改比例），
+// 并按属性框中心空洞实测给出插画尺寸 --sk-iw/--sk-ih（px，基于 FRAME_H=72 的帧盒）。
 // 用法：node tools/gen-skill-icons.cjs
 const fs = require('fs');
 const path = require('path');
@@ -10,12 +10,10 @@ const ROOT = path.resolve(__dirname, '..');
 const FR = process.env.LCW_FRAMES || path.join(ROOT, 'src/web/ui-assets/skill/frames3');
 const ICON_DIR = path.join(ROOT, 'src/web/ui-assets/skill');
 const OUT = path.join(ROOT, 'src/web/ui-assets/skill-icons.css');
-// 帧层 inset 见 style.css：.sk-icon-wrap .sk-lvl,.sk-icon-wrap .sk-sin{inset:13.6%} → 帧盒 = 72.8% of wrap
-const FRAME_OF_WRAP = 0.728;
+const FRAME_H = 72; // 与 style.css 的 .sk-lvl/.sk-sin 高度一致
 
 const b64 = (p) => 'url("data:image/png;base64,' + fs.readFileSync(p).toString('base64') + '")';
 
-// --- 最小 PNG 解码（8bit RGBA/RGBA16 之外只处理 8bit，用于量空洞） ---
 function decodePNG(file) {
   const b = fs.readFileSync(file);
   let off = 8, w = 0, h = 0, depth = 8, ctype = 6;
@@ -29,7 +27,7 @@ function decodePNG(file) {
     off += 12 + len;
     if (type === 'IEND') break;
   }
-  if (depth !== 8 || (ctype !== 6 && ctype !== 4)) return null;
+  if (depth !== 8 || (ctype !== 6 && ctype !== 4)) return { w, h, bpp: 0, data: null };
   const bpp = ctype === 6 ? 4 : 2;
   const raw = zlib.inflateSync(Buffer.concat(idat));
   const stride = w * bpp + 1;
@@ -50,9 +48,9 @@ function decodePNG(file) {
   return { w, h, bpp, data: out };
 }
 
-// 中心空洞：逐行找「两侧都不透明」的透明段，取并集 bbox
+// 中心空洞（只对属性框有意义；底板是实心剪影，没有空洞）
 function holeOf(png) {
-  if (!png) return null;
+  if (!png || !png.data) return null;
   const { w, h, bpp, data } = png;
   let l = 1e9, r = -1, t = -1, b = -1;
   for (let y = 0; y < h; y++) {
@@ -60,9 +58,7 @@ function holeOf(png) {
     for (let x = 0; x < w; x++) if (data[(y * w + x) * bpp + 3] > 30) { if (first < 0) first = x; last = x; }
     if (first < 0 || last - first < 8) continue;
     for (let x = first + 1; x < last; x++) {
-      if (data[(y * w + x) * bpp + 3] <= 30) {
-        if (x < l) l = x; if (x > r) r = x; if (t < 0) t = y; b = y;
-      }
+      if (data[(y * w + x) * bpp + 3] <= 30) { if (x < l) l = x; if (x > r) r = x; if (t < 0) t = y; b = y; }
     }
   }
   if (r < 0) return null;
@@ -79,20 +75,25 @@ const combos = [...lvls].filter((k) => sins.has(k)).sort();
 
 const lines = [
   '/* 技能图标框：每档 = 等级底板(底) + 七边形插画(中) + 属性框(顶)；来源 limbuscompany.huijiwiki「技能图标DIY」',
-  '   --sk-hw / --sk-hh = 插画可用尺寸（相对 .sk-icon-wrap 百分比，按属性框中心空洞实测，留 4% 余量）',
-  '   生成脚本：tools/gen-skill-icons.cjs —— 不要手改本文件。 */',
+  '   --sk-ar    = 帧图真实宽高比（帧盒按它保持比例，避免被压扁）',
+  '   --sk-iw/--sk-ih = 插画尺寸（px，基于 ' + FRAME_H + 'px 高的帧盒，按属性框中心空洞实测 ×0.97）',
+  '   生成脚本：tools/gen-skill-icons.cjs —— 不要手改本文件。*/',
 ];
-let measured = 0;
+let measured = 0, arCount = 0;
 for (const c of combos) {
-  const hole = holeOf(decodePNG(path.join(FR, c + '_sin.png')));
-  const side = hole ? Math.min(hole.wPct, hole.hPct) * 0.96 * FRAME_OF_WRAP * 100 : null;
-  const hw = side;
-  const hh = side;
-  if (hw && hh) measured++;
-  const holeVars = hw && hh
-    ? ';--sk-hw:' + hw.toFixed(2) + '%;--sk-hh:' + hh.toFixed(2) + '%;--sk-hx:' + (hole.cx * 100).toFixed(2) + '%;--sk-hy:' + (hole.cy * 100).toFixed(2) + '%'
-    : '';
-  lines.push('.sk-frame-' + c + '{--sk-lvl:' + b64(path.join(FR, c + '_level.png')) + ';--sk-sin:' + b64(path.join(FR, c + '_sin.png')) + holeVars + '}');
+  const sinPng = decodePNG(path.join(FR, c + '_sin.png'));
+  const lvlPng = decodePNG(path.join(FR, c + '_level.png'));
+  const ar = sinPng && sinPng.h ? (sinPng.w / sinPng.h) : 1;
+  const arLvl = lvlPng && lvlPng.h ? (lvlPng.w / lvlPng.h) : ar;
+  const hole = holeOf(sinPng);
+  const boxW = FRAME_H * ar;
+  const iw = hole ? Math.min(boxW * hole.wPct, FRAME_H * hole.hPct) * 0.97 : FRAME_H * 0.56;
+  const ih = iw; // 插画始终正方形（七边形裁切），取 min 后不会溢出空洞
+  if (hole) measured++;
+  if (sinPng && sinPng.w) arCount++;
+  lines.push('.sk-frame-' + c + '{--sk-lvl:' + b64(path.join(FR, c + '_level.png')) + ';--sk-sin:' + b64(path.join(FR, c + '_sin.png'))
+    + ';--sk-ar:' + ar.toFixed(4) + ';--sk-arl:' + arLvl.toFixed(4)
+    + ';--sk-iw:' + iw.toFixed(1) + 'px;--sk-ih:' + ih.toFixed(1) + 'px}');
 }
 const coin = path.join(ICON_DIR, 'coin.png');
 const atk = path.join(ICON_DIR, 'atk-correction.png');
@@ -101,4 +102,4 @@ if (!fs.existsSync(atk)) throw new Error('缺少 atk-correction.png');
 lines.push('.sk-ico-coin,.sk-coin{background-image:' + b64(coin) + '}');
 lines.push('.sk-ico-atk{background-image:' + b64(atk) + '}');
 fs.writeFileSync(OUT, lines.join('\n'));
-console.log('frames', combos.length, 'measuredHoles', measured, '->', OUT, fs.statSync(OUT).size, 'bytes');
+console.log('frames', combos.length, 'holes', measured, 'aspects', arCount, 'FRAME_H', FRAME_H, '->', OUT, fs.statSync(OUT).size, 'bytes');

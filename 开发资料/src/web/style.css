@@ -1708,10 +1708,13 @@ body.mod-reordering { cursor: grabbing; }
 .sk-icon{clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);width:72px;height:72px;object-fit:cover}
 /* ===== 技能图标三层叠加（等级框 → 七边形图标 → 属性框），v0.9.18 ===== */
 .sk-icon-wrap{position:relative;width:96px;height:96px;display:block}
-.sk-icon-wrap .sk-lvl,.sk-icon-wrap .sk-sin{position:absolute;inset:13.6%;background-size:100% 100%;background-position:0 0;background-repeat:no-repeat;pointer-events:none}
+/* 帧层：高度固定 72px，宽度按各档帧图真实宽高比（--sk-ar），避免被拉伸成正方形而「压扁」 */
+.sk-icon-wrap .sk-lvl,.sk-icon-wrap .sk-sin{position:absolute;left:50%;top:50%;height:72px;transform:translate(-50%,-50%);background-size:100% 100%;background-position:0 0;background-repeat:no-repeat;pointer-events:none}
+.sk-icon-wrap .sk-lvl{width:calc(72px * var(--sk-arl,1));z-index:1}
+.sk-icon-wrap .sk-sin{width:calc(72px * var(--sk-ar,1));z-index:3}
 .sk-icon-wrap .sk-lvl{z-index:1}
 .sk-icon-wrap .sk-sin{z-index:3}
-.sk-icon-wrap .sk-icon{position:absolute;left:50%;top:50%;width:58%;height:58%;transform:translate(-50%,-50%);z-index:2;border-radius:0;background-color:#241d19;background-size:cover;background-position:center;box-shadow:none;-webkit-clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%);clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%)}
+.sk-icon-wrap .sk-icon{position:absolute;left:50%;top:50%;width:var(--sk-iw,40px);height:var(--sk-ih,40px);transform:translate(-50%,-50%);z-index:2;border-radius:0;background-color:#241d19;background-size:cover;background-position:center;box-shadow:none;-webkit-clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%);clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%)}
 .sk-lvl{background-image:var(--sk-lvl)}
 .sk-sin{background-image:var(--sk-sin)}
 /* 游戏本体中文字体：仅技能标题使用（/font/chinese.ttf 由本地服务从私服 Lang 目录流式提供） */
