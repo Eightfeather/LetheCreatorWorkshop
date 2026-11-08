@@ -3259,11 +3259,49 @@ function renderSkillInfoList(sk) {
     + rowSel("技能等级（边框档位）", "skillTier", [{ id: "1", zh: "等级 1" }, { id: "2", zh: "等级 2" }, { id: "3", zh: "等级 3" }])
     + "</div></div>";
 }
+// 把技能插画按「不透明像素的包围盒」重新居中，输出正方形 dataURL（避免图标本体构图偏上/偏右）
+function centerIconDataUrl(dataUrl) {
+  return new Promise((resolve) => {
+    if (!dataUrl) return resolve("");
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const w = im.naturalWidth, h = im.naturalHeight;
+        if (!w || !h) return resolve(dataUrl);
+        const cv0 = document.createElement("canvas");
+        cv0.width = w; cv0.height = h;
+        const g0 = cv0.getContext("2d");
+        g0.drawImage(im, 0, 0);
+        const px = g0.getImageData(0, 0, w, h).data;
+        let x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            if (px[(y * w + x) * 4 + 3] > 16) {
+              if (x < x0) x0 = x; if (x > x1) x1 = x;
+              if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+          }
+        }
+        if (x1 < 0 || y1 < 0) return resolve(dataUrl);
+        const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+        const side = Math.round(Math.max(bw, bh) * 1.04);
+        const cv = document.createElement("canvas");
+        cv.width = side; cv.height = side;
+        const g = cv.getContext("2d");
+        g.drawImage(im, x0, y0, bw, bh, (side - bw) / 2, (side - bh) / 2, bw, bh);
+        resolve(cv.toDataURL("image/png"));
+      } catch (e) { resolve(dataUrl); }
+    };
+    im.onerror = () => resolve("");
+    im.src = dataUrl;
+  });
+}
+
 async function loadSkillIcon(sk) {
   if (!sk || !S.selected) return;
   try {
     const rr = await api("/api/skill/icon?name=" + encodeURIComponent(S.selected) + "&id=" + encodeURIComponent(sk.id));
-    sk.iconDataUrl = (rr && rr.dataUrl) || "";
+    sk.iconDataUrl = await centerIconDataUrl((rr && rr.dataUrl) || "");
   } catch (e) { sk.iconDataUrl = ""; }
 }
 function renderSkillMain() {

@@ -1714,7 +1714,7 @@ body.mod-reordering { cursor: grabbing; }
 .sk-icon-wrap .sk-sin{width:calc(72px * var(--sk-ar,1));z-index:3}
 .sk-icon-wrap .sk-lvl{z-index:1}
 .sk-icon-wrap .sk-sin{z-index:3}
-.sk-icon-wrap .sk-icon{position:absolute;left:50%;top:50%;width:var(--sk-iw,40px);height:var(--sk-ih,40px);transform:translate(-50%,-50%);z-index:2;border-radius:0;background-color:#241d19;background-size:cover;background-position:center;box-shadow:none;-webkit-clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%);clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%)}
+.sk-icon-wrap .sk-icon{position:absolute;left:50%;top:50%;width:var(--sk-iw,40px);height:var(--sk-ih,40px);transform:translate(-50%,-50%);z-index:2;border-radius:0;background-color:#241d19;background-size:cover;background-position:center;box-shadow:none;-webkit-clip-path:polygon(49.9% 0%,90.1% 19.8%,100% 64.2%,72.2% 100%,27.7% 100%,0% 64.2%,9.9% 19.8%);clip-path:polygon(49.9% 0%,90.1% 19.8%,100% 64.2%,72.2% 100%,27.7% 100%,0% 64.2%,9.9% 19.8%)}
 .sk-lvl{background-image:var(--sk-lvl)}
 .sk-sin{background-image:var(--sk-sin)}
 /* 游戏本体中文字体：仅技能标题使用（/font/chinese.ttf 由本地服务从私服 Lang 目录流式提供） */
