@@ -1812,3 +1812,27 @@ body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
 .desc-rich .desc-tok{cursor:pointer;border-bottom:1px dotted currentColor}
 .desc-rich .desc-tok:hover{background:rgba(198,161,91,.16)}
 /* @desc-rich-v1:end */
+
+/* @edit-top-v1:start */
+.layout.edit.no-side{grid-template-columns:minmax(0,1fr)}
+.layout.edit.no-side > .edit-pane{min-width:0}
+.edit-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(0,0,0,.18)}
+.edit-top .field.inline{display:flex;align-items:center;gap:8px;margin:0}
+.edit-top .field.inline > span{white-space:nowrap;color:var(--gold);font-size:12px;letter-spacing:.04em}
+.edit-top select{min-width:220px}
+.edit-top .muted{font-size:12px}
+/* 技能中间区：左列（预览 + 基础信息）约 1/3，右列（代码/描述） */
+.skill-body .skill-side{grid-area:side;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto}
+.skill-body .skill-side .skill-prev-card{margin:0}
+.skill-body .skill-side .info-card{margin:0}
+@media (max-width:1100px){ .skill-body{grid-template-columns:minmax(0,1fr);grid-template-areas:"side" "editor"} }
+/* @edit-top-v1:end */
+
+/* @skill-body-v3:start —— 技能中间区：左列(预览+基础信息) / 右列(代码·描述)，覆盖旧 @skill-layout-v2 的 areas */
+.skill-wrap .skill-body{display:grid !important;grid-template-columns:minmax(300px,34%) minmax(0,1fr) !important;grid-template-areas:"side editor" !important;grid-template-rows:auto !important;gap:12px !important;align-items:start !important}
+.skill-wrap .skill-body > .skill-side{grid-area:side !important;display:flex;flex-direction:column;gap:10px;min-height:0}
+.skill-wrap .skill-body > .editor-card{grid-area:editor !important;min-height:320px}
+.skill-wrap .skill-body > .skill-side > .skill-prev-card,
+.skill-wrap .skill-body > .skill-side > .info-card{margin:0}
+@media (max-width:1100px){ .skill-wrap .skill-body{grid-template-columns:minmax(0,1fr) !important;grid-template-areas:"side" "editor" !important} }
+/* @skill-body-v3:end */

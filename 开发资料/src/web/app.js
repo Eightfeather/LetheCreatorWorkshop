@@ -661,31 +661,19 @@ const modRowMini = (m) => `<button class="item mini ${S.selected === m.name ? 'a
 </button>`;
 
 function renderEdit() {
-  // v0.9.8：模块是全局资源，进「模块编辑」时不需要左侧 Mod 列表
-  if (S.editKind === 'module') {
-    return `<div class="layout edit module-only">
-      <section class="panel edit-pane">
-        ${renderKindTabs() + renderKindArea()}
-      </section>
-    </div>`;
-  }
-  // 完整列表与收起窄条两层常驻，切换时只换类名：完整层向左滑出、窄条随后滑入（见 style.css v0.5「滑入滑出」）
-  return `<div class="layout edit ${S.listCollapsed ? 'list-collapsed' : ''}">
-    <section class="panel list-panel">
-      <div class="lp-full">
-        <div class="panel-head">MOD 列表 <span class="count">${S.mods.length}</span><button class="fold-btn" data-act="toggle-modlist" title="收起 Mod 列表">«</button></div>
-        <div class="panel-body list">${S.mods.map(modRow).join('') || '<div class="list-empty">mods 目录是空的</div>'}</div>
-      </div>
-      <div class="lp-mini">
-        <div class="panel-head"><button class="fold-btn" data-act="toggle-modlist" title="展开 Mod 列表">»</button></div>
-        <div class="panel-body list">${S.mods.map(modRowMini).join('')}</div>
-      </div>
-    </section>
-    <section class="panel edit-pane">
-      ${S.editKind ? renderKindTabs() + renderKindArea() : renderWizardHome()}
-      <div class="dock-mini" id="session-hint"></div>
-    </section>
-  </div>`;
+  const opts = (S.mods || []).map((m) => '<option value="' + esc(m.name) + '"' + (m.name === S.selected ? ' selected' : '') + '>'
+    + esc(m.name) + (m.enabled === false ? '（已禁用）' : '') + '</option>').join('');
+  const top = '<div class="edit-top">'
+    + '<label class="field inline"><span>选择编辑 Mod</span><select id="edit-mod">' + (opts || '<option value="">mods 目录是空的</option>') + '</select></label>'
+    + '<span class="muted">' + (S.selected ? esc(S.selected) : '尚未选择 Mod') + ' · 切换编辑对象只能在这里</span>'
+    + (S.editKind === 'module' ? '<span class="tag">模块是全局资源，不依赖所选 Mod</span>' : '')
+    + '</div>';
+  return '<div class="layout edit no-side">'
+    + '<section class="panel edit-pane">'
+    + top
+    + (S.editKind ? renderKindTabs() + renderKindArea() : renderWizardHome())
+    + '<div class="dock-mini" id="session-hint"></div>'
+    + '</section></div>';
 }
 
 /** 编辑区顶部的子页签：进入任意编辑器后常驻，可直接跳到其他编辑器，不必逐层返回 */
@@ -702,7 +690,7 @@ function renderWizardHome() {
     <small>${w.sub}${w.wip ? ' · 维修中' : ''}</small>
   </button>`).join('');
   return `<div class="pane-head">
-    <div><h2>Mod 编辑</h2><p class="muted">${S.selected ? esc(S.selected) : '先从左侧选一个 Mod'}</p></div>
+    <div><h2>Mod 编辑</h2><p class="muted">${S.selected ? esc(S.selected) : '请用上方「选择编辑 Mod」选择要编辑的 Mod'}</p></div>
   </div>
   <div class="wiz-grid">${cards}</div>`;
 }
@@ -2862,6 +2850,20 @@ document.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'edit-mod') {
+    const nm = e.target.value;
+    if (!nm || nm === S.selected) { render(); return; }
+    const dirty = Boolean(S.session && S.session.dirty);
+    if (!dirty) { actions['select-mod']({ dataset: { name: nm } }).catch((err) => toast(err.message, 'error')); return; }
+    modal({
+      title: '切换编辑 Mod',
+      body: '<p>当前 Mod「' + esc(S.selected) + '」还有未保存的改动。</p>',
+      footer: '<button class="btn ghost" data-act="edit-mod-cancel">取消</button>'
+        + '<button class="btn danger" data-act="edit-mod-discard" data-name="' + esc(nm) + '">放弃改动并切换</button>'
+        + '<button class="btn primary" data-act="edit-mod-save" data-name="' + esc(nm) + '">保存并切换</button>',
+    });
+    return;
+  }
   if (e.target && e.target.id === 'pf-file') {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
@@ -3184,14 +3186,20 @@ function moduleName(id) {
 }
 
 function renderSkillArea(back) {
-  const skills = S.skills || [];
+  // v0.9.16：技能列表按「修改日期」倒序，同日期按 id 升序（用户大纲要求）
+  const skills = (S.skills || []).slice().sort((a, b) => {
+    const da = String(a.updatedAt || '');
+    const db = String(b.updatedAt || '');
+    if (da !== db) return db.localeCompare(da);
+    return String(a.id).localeCompare(String(b.id), 'en', { numeric: true });
+  });
   const q = (S.skillSearch || '').trim().toLowerCase();
   const shown = skills.filter((sk) => !q || String(sk.id).includes(q) || String(sk.name || '').toLowerCase().includes(q));
   const rows = shown.map((sk) => '<button class="item skill-item ' + (S.skillId === String(sk.id) ? 'active' : '') + '" data-act="open-skill" data-id="' + esc(sk.id) + '">'
     + '<div class="item-main"><strong>' + esc(sk.name || sk.id) + '</strong><small>' + esc(sk.id)
     + (sk.override ? ' · 原版覆盖' : '') + (sk.coins ? ' · ' + sk.coins + ' 硬币' : '') + '</small></div>'
     + '<span class="state-dot ' + (sk.updatedAt ? 'on' : '') + '"></span></button>').join('');
-  const mods = filteredModules().map((m) => '<div class="module-item" data-module="' + esc(m.id) + '">'
+  const mods = filteredModules().slice().sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).map((m) => '<div class="module-item" data-module="' + esc(m.id) + '">'
     + '<div class="m-head"><span class="tag ' + (m.test ? 'warn' : '') + '">' + (m.test ? '测试' : '模块') + '</span><strong>' + esc(m.name || m.id) + '</strong></div>'
     + '<p class="m-desc">' + esc(m.description || '') + '</p></div>').join('');
   const disabled = S.mods.find((m) => m.name === S.selected)?.enabled === false;
@@ -3207,7 +3215,7 @@ function renderSkillArea(back) {
     + '<section class="panel module-list"><div class="panel-head">模块列表 <span class="count">' + (S.modules || []).length + '</span></div>'
     + '<div class="panel-search"><input id="module-search" class="search" placeholder="搜索 [命中时] / 描述" value="' + esc(S.moduleSearch) + '"></div>'
     + '<div class="panel-body mods">' + (mods || '<div class="list-empty">没有模块</div>') + '</div>'
-    + '<div class="panel-foot"><span class="hint muted">模块编辑尚未开放 · 3 个测试模块仅供拖拽演示，不产生实际效果</span></div></section>'
+    + '<div class="panel-foot"><span class="hint muted">把模块拖进中间的置入区即可使用；模块在「模块编辑」里制作</span></div></section>'
     + '</div>';
 }
 
@@ -3339,7 +3347,9 @@ function renderSkillMain() {
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
     + '<button class="btn primary sm" data-act="save-personality">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
-    + '<div class="skill-body">' + renderSkillPreview(sk) + renderSkillInfoList(sk) + '<div class="editor-card"><div class="tabs">'
+    + '<div class="skill-body">'
+    + '<div class="skill-side">' + renderSkillPreview(sk) + renderSkillInfoList(sk) + '</div>'
+    + '<div class="editor-card"><div class="tabs">'
     + '<button class="tab ' + (S.skillTab === 'code' ? 'active' : '') + '" data-act="skill-tab" data-tab="code">代码</button>'
     + '<button class="tab ' + (S.skillTab === 'desc' ? 'active' : '') + '" data-act="skill-tab" data-tab="desc">描述</button></div>'
     + (S.skillTab === 'desc' ? renderSkillDesc(sk) : renderSkillCode(code))
@@ -5542,6 +5552,9 @@ function mbPickApply(chain, node) {
 }
 
 Object.assign(actions, {
+  'edit-mod-cancel': () => { closeModal(); render(); },
+  'edit-mod-discard': async (el) => { closeModal(); await actions['select-mod']({ dataset: { name: el.dataset.name } }); },
+  'edit-mod-save': async (el) => { closeModal(); try { await saveCurrent(); } catch (e) { toast(e.message, 'error'); render(); return; } await actions['select-mod']({ dataset: { name: el.dataset.name } }); },
   'mb-pick': (el) => {
     const kind = el.dataset.kind;
     const val = el.dataset.val;
