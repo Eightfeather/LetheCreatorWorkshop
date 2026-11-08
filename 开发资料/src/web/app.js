@@ -1829,6 +1829,8 @@ const actions = {
     const level = 4;
     try {
       await api('/api/personality/passive', { method: 'POST', body: { name: S.selected, id: S.personality.id, kind, op: 'add', passiveId: pid, level } });
+      S.pPassiveQ = '';
+      S.pSearch = { ...(S.pSearch || {}), passive: [] };
       await loadPersonality(S.selected, S.personality.id); render(); toast(`已加入（${kind === 'battle' ? '战斗被动' : '支援被动'} · 同步等级 ${level}）`, 'ok');
     } catch (e) { toast(e.message, 'error'); }
   },
@@ -2183,6 +2185,8 @@ const actions = {
   },
   'p-pick-buff': async (el) => {
     const id = el.dataset.id;
+    S.pBuffQ = '';
+    S.pSearch = { ...(S.pSearch || {}), buff: [] };
     const groups = JSON.parse(JSON.stringify(pEntity().initBuffList || []));
     let g4 = groups.find((g) => Number(g.level) === 4);
     if (!g4) { g4 = { level: 4, list: [] }; groups.push(g4); }
@@ -2817,10 +2821,10 @@ document.addEventListener('input', (e) => {
   if (t.closest('#personality-form')) {
     if (t.dataset && t.dataset.num) return;
     if (t.dataset && (t.dataset.skillNum !== undefined || t.dataset.break !== undefined || t.dataset.buffStack !== undefined || t.dataset.buffTurn !== undefined)) return;
-    if (t.id === 'p-skill-q') { S.pSkillQ = t.value; pSearchUnits('skill', t.value); return; }
-    if (t.id === 'p-def-q') { S.pDefQ = t.value; pSearchUnits('def', t.value); return; }
-    if (t.id === 'p-buff-q') { S.pBuffQ = t.value; pSearchUnits('buff', t.value); return; }
-    if (t.id === 'p-passive-q') { S.pPassiveQ = t.value; pSearchUnits('passive', t.value); return; }
+    if (t.id === 'p-skill-q') { S.pSkillQ = t.value; pSearchUnits('skill', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
+    if (t.id === 'p-def-q') { S.pDefQ = t.value; pSearchUnits('def', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
+    if (t.id === 'p-buff-q') { S.pBuffQ = t.value; pSearchUnits('buff', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
+    if (t.id === 'p-passive-q') { S.pPassiveQ = t.value; pSearchUnits('passive', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
     if (t.dataset && t.dataset.tagq) {
       S.pTagQ = { ...(S.pTagQ || {}), [t.dataset.tagq]: t.value };
       pRefreshTagHits(t.dataset.tagq);
@@ -7362,6 +7366,26 @@ function descCaretToken(ta) {
   return { q, start: open };
 }
 
+function descCaretPos(ta) {
+  const cs = getComputedStyle(ta);
+  const div = document.createElement('div');
+  const props = ['boxSizing','width','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth','paddingTop','paddingRight','paddingBottom','paddingLeft','fontStyle','fontVariant','fontWeight','fontStretch','fontSize','lineHeight','fontFamily','textAlign','textTransform','textIndent','letterSpacing','wordSpacing','tabSize'];
+  div.style.cssText = 'position:absolute;visibility:hidden;white-space:pre-wrap;word-wrap:break-word;top:0;left:-9999px';
+  for (const p of props) div.style[p] = cs[p];
+  div.style.width = cs.width;
+  div.style.height = 'auto';
+  div.textContent = ta.value.slice(0, ta.selectionStart);
+  const span = document.createElement('span');
+  span.textContent = '\u200b';
+  div.appendChild(span);
+  document.body.appendChild(div);
+  const r = ta.getBoundingClientRect();
+  const lh = parseFloat(cs.lineHeight) || parseInt(cs.fontSize, 10) * 1.4 || 18;
+  const pos = { left: r.left + (span.offsetLeft - ta.scrollLeft), top: r.top + (span.offsetTop - ta.scrollTop) + lh + 2 };
+  document.body.removeChild(div);
+  return pos;
+}
+
 function descPopRender(items) {
   const el = descPopEnsure();
   const list = el.querySelector('.desc-pop-list');
@@ -7374,9 +7398,21 @@ function descPopRender(items) {
   el.classList.add('on');
   const ta = descPopCtx && descPopCtx.ta;
   if (ta) {
-    const r = ta.getBoundingClientRect();
-    el.style.left = Math.max(8, Math.min(window.innerWidth - 268, r.left)) + 'px';
-    el.style.top = Math.min(window.innerHeight - 40, r.bottom + 4) + 'px';
+    const p = descCaretPos(ta);
+    const w = 266;
+    const listEl = el.querySelector('.desc-pop-list');
+    const spaceBelow = window.innerHeight - 10 - p.top;
+    let top = p.top;
+    let maxH = 240;
+    if (spaceBelow < 150) {
+      top = Math.max(10, p.top - 26 - Math.min(240, window.innerHeight - 20));
+      maxH = Math.min(240, p.top - top - 30);
+    } else {
+      maxH = Math.min(240, spaceBelow - 32);
+    }
+    if (listEl) listEl.style.maxHeight = Math.max(96, maxH) + 'px';
+    el.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, p.left)) + 'px';
+    el.style.top = top + 'px';
   }
 }
 
@@ -7428,7 +7464,11 @@ document.addEventListener('mousedown', (e) => {
   if (descPopCtx && e.target === descPopCtx.ta) return;
   descPopHide();
 }, true);
-window.addEventListener('scroll', () => descPopHide(), true);
+window.addEventListener('scroll', (ev) => {
+  const t = ev.target;
+  if (t && t.closest && t.closest('.desc-pop')) return;
+  descPopHide();
+}, true);
 
 /* ================= 模块编辑：搜索浮层 ================= */
 function mbResPool() {

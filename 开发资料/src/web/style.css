@@ -1781,3 +1781,26 @@ body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
 .bs-ro{border:1px dashed #6F5A33;border-radius:6px;padding:8px;background:rgba(0,0,0,.18)}
 .bs-ro-tag{display:inline-block;font-size:10.5px;letter-spacing:.4px;color:#C98A3C;border:1px solid #6F5A33;border-radius:999px;padding:1px 7px;margin-bottom:6px}
 .bs-ro-hint{font-size:11px;margin-top:4px}
+
+
+/* @skill-layout-v2:start —— 技能编辑可读性重排：上排「预览 + 基础信息」，下排「代码/描述」整行 */
+.skill-body{
+  display:grid !important;
+  grid-template-columns:minmax(300px,340px) minmax(0,1fr) !important;
+  grid-template-areas:"prev info" "editor editor" !important;
+  gap:12px !important;
+  align-items:start !important;
+  padding:12px !important;
+  overflow:auto !important;
+  min-height:0;
+}
+.skill-body > .skill-prev-card{grid-area:prev;min-width:0}
+.skill-body > .info-card{grid-area:info;min-width:0;max-height:none;overflow:visible}
+.skill-body > .editor-card{grid-area:editor;min-height:340px;display:flex;flex-direction:column;min-width:0}
+.skill-body > .editor-card .code-wrap{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.skill-body .sk-prev{padding:10px 12px}
+.skill-body .sk-row-l{width:104px}
+@media (max-width:1100px){
+  .skill-body{grid-template-columns:minmax(0,1fr) !important;grid-template-areas:"prev" "info" "editor" !important}
+}
+/* @skill-layout-v2:end */
