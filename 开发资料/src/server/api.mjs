@@ -778,11 +778,20 @@ export function buildApi(ctx) {
               color: coinColor((c || {}).color),
               value: Number((c || {}).scale) || 0,
             }));
-            const hasCodeFile = fs.existsSync(skillCodePath(letheRoot, q.get('name'), one.id));
+            const codePath = skillCodePath(letheRoot, q.get('name'), one.id);
+            const hasCodeFile = fs.existsSync(codePath);
             const draft = (one.meta && one.meta.code) || {};
             const draftCoins = Array.isArray(draft.coins) ? draft.coins : [];
-            // 草稿与文件硬币数量不一致 => 视为过期草稿，按文件重建（保留同位置的模块绑定）
+            // 过期草稿判定（两道）：①硬币数与文件不一致；②草稿写盘时间早于技能实体文件（说明文件后来被改过，如加了硬币 / 改了威力）
+            let draftFresh = false;
             if (hasCodeFile && draftCoins.length === fileCoins.length) {
+              try {
+                const codeMs = fs.statSync(codePath).mtimeMs;
+                const entMs = fs.statSync(join(modDirSafe(letheRoot, q.get('name')), one.rel)).mtimeMs;
+                draftFresh = codeMs >= entMs - 1500;
+              } catch (e) { draftFresh = true; }
+            }
+            if (draftFresh) {
               return {
                 ...draft,
                 coins: draftCoins.map((c, i) => ({

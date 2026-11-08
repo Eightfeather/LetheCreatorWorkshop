@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
-const FR = path.join(ROOT, 'src/web/ui-assets/skill/frames2');
+const FR = process.env.LCW_FRAMES || path.join(ROOT, 'src/web/ui-assets/skill/frames3');
 const ICON_DIR = path.join(ROOT, 'src/web/ui-assets/skill');
 const OUT = path.join(ROOT, 'src/web/ui-assets/skill-icons.css');
 

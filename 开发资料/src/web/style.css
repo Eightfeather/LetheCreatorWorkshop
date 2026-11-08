@@ -1708,7 +1708,7 @@ body.mod-reordering { cursor: grabbing; }
 .sk-icon{clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);width:72px;height:72px;object-fit:cover}
 /* ===== 技能图标三层叠加（等级框 → 七边形图标 → 属性框），v0.9.18 ===== */
 .sk-icon-wrap{position:relative;width:96px;height:96px;display:block}
-.sk-icon-wrap .sk-lvl,.sk-icon-wrap .sk-sin{position:absolute;inset:-3%;background-size:100% 100%;background-repeat:no-repeat;background-position:center;pointer-events:none}
+.sk-icon-wrap .sk-lvl,.sk-icon-wrap .sk-sin{position:absolute;inset:0;background-size:100% 100%;background-repeat:no-repeat;background-position:center;pointer-events:none}
 .sk-icon-wrap .sk-lvl{z-index:1}
 .sk-icon-wrap .sk-sin{z-index:3}
 .sk-icon-wrap .sk-icon{position:absolute;left:20%;top:20%;width:60%;height:60%;z-index:2;border-radius:0;background-color:#241d19;background-size:cover;background-position:center;box-shadow:none;-webkit-clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%);clip-path:polygon(74% 0%,100% 37.5%,92% 79%,50% 100%,8% 79%,0% 37.5%,26% 0%)}
@@ -1735,9 +1735,9 @@ body.mod-reordering { cursor: grabbing; }
 /* @skill-prev-hug:start */
 .sk-prev{gap:6px;padding:8px 10px 8px 8px;align-items:flex-start}
 /* 图标列：第 1 行放变动值（只占图标这一列），第 2 行放「威力 + 图标」 */
-.sk-icon-col{position:relative;display:grid;grid-template-columns:auto 96px;grid-template-rows:auto auto;column-gap:2px;row-gap:2px;align-items:center;justify-items:center}
-.sk-coinval{grid-column:2;grid-row:1;width:96px;margin:0;padding:0;line-height:1.05;text-align:center;font-size:15px;font-weight:700;letter-spacing:.5px}
-.sk-base{grid-column:1;grid-row:2;margin:0;padding:0;text-align:right;min-width:0;align-self:center;justify-self:end}
+.sk-icon-col{position:relative;display:grid;grid-template-columns:auto 96px;grid-template-rows:auto auto;column-gap:0;row-gap:0;align-items:center;justify-items:center}
+.sk-coinval{grid-column:2;grid-row:1;width:96px;margin:0 0 -4px 0;padding:0;line-height:1.05;text-align:center;font-size:15px;font-weight:700;letter-spacing:.5px}
+.sk-base{grid-column:1;grid-row:2;margin:0 -6px 0 0;padding:0;text-align:right;min-width:0;align-self:center;justify-self:end}
 .sk-icon-wrap{grid-column:2;grid-row:2}
 .sk-lvl,.sk-sin{inset:0}
 .sk-icon{left:22%;top:22%;width:56%;height:56%}
