@@ -15,7 +15,7 @@ import { AutoSaver } from '../lethe/autosave.mjs';
 import { markCleanExit, markRunning } from '../lethe/state.mjs';
 import { migrateToLcw } from '../lethe/lcw.mjs';
 
-export const VERSION = '0.9.25';
+export const VERSION = '0.9.26';
 const WEB_ROOT = join(SRC_DIR, 'web');
 
 export function createServer({ token, state, log, session, autosave } = {}) {
@@ -112,7 +112,7 @@ export function startServer({ port = 3081, host = '127.0.0.1', explicit, locateN
   if (state.letheRoot) { try { migrateToLcw(state.letheRoot, log); } catch { /* 迁移失败不阻塞 */ } }
 
   // 启动预热：把词表/外观扫描提前做掉，后续页面不再出现「正在加载」
-  if (state.letheRoot) warmupCaches(state.letheRoot, log).catch(() => {});
+  const startWarmup = () => { if (state.letheRoot) warmupCaches(state.letheRoot, log).catch(() => {}); };
 
   // 运行标记：下次启动可检测“未被正常关闭”
   if (state.letheRoot) markRunning(state.letheRoot);
@@ -136,6 +136,7 @@ export function startServer({ port = 3081, host = '127.0.0.1', explicit, locateN
         log?.(`服务已启动：http://${host}:${actual}  Lethe=${state.letheRoot || '(未定位)'}`);
         if (process.env.LETHE_WB_HANDSHAKE === '1') {
           process.stdout.write(`WB-READY ${JSON.stringify({ port: actual, token, letheRoot: state.letheRoot, version: VERSION })}\n`);
+    setTimeout(startWarmup, 0);
         }
         resolve({ server, port: actual, url: `http://${host}:${actual}/`, token, state, session, autosave });
       });
