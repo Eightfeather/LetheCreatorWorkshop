@@ -663,11 +663,11 @@ const modRowMini = (m) => `<button class="item mini ${S.selected === m.name ? 'a
 function renderEdit() {
   const opts = (S.mods || []).map((m) => '<option value="' + esc(m.name) + '"' + (m.name === S.selected ? ' selected' : '') + '>'
     + esc(m.name) + (m.enabled === false ? '（已禁用）' : '') + '</option>').join('');
-  const top = '<div class="edit-top">'
+  // v0.9.17：顶部「选择编辑 Mod」只在 Mod 编辑首页出现，进入具体编辑器后隐藏
+  const top = S.editKind ? '' : ('<div class="edit-top">'
     + '<label class="field inline"><span>选择编辑 Mod</span><select id="edit-mod">' + (opts || '<option value="">mods 目录是空的</option>') + '</select></label>'
-    + '<span class="muted">' + (S.selected ? esc(S.selected) : '尚未选择 Mod') + ' · 切换编辑对象只能在这里</span>'
-    + (S.editKind === 'module' ? '<span class="tag">模块是全局资源，不依赖所选 Mod</span>' : '')
-    + '</div>';
+    + '<span class="muted">' + (S.selected ? esc(S.selected) : '尚未选择 Mod') + ' · 切换编辑对象请回到本页</span>'
+    + '</div>');
   return '<div class="layout edit no-side">'
     + '<section class="panel edit-pane">'
     + top
