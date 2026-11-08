@@ -1731,3 +1731,14 @@ body.mod-reordering { cursor: grabbing; }
 .sk-cap{font-size:11.5px;letter-spacing:.2px;white-space:nowrap}
 .sk-name-col{gap:5px}
 /* @skill-prev-tune:end */
+
+/* @skill-prev-hug:start */
+.sk-prev{gap:6px;padding:8px 10px 8px 8px;align-items:flex-start}
+.sk-icon-col{gap:0;align-items:flex-start}
+.sk-icon-row{display:flex;align-items:center;gap:2px}
+.sk-coinval{margin:0 0 2px 0;padding:0;line-height:1;text-align:center;min-width:96px}
+.sk-base{margin:0;padding:0;text-align:right;min-width:0}
+.sk-lvl,.sk-sin{inset:0}
+.sk-icon{left:22%;top:22%;width:56%;height:56%}
+/* @skill-prev-hug:end */
+

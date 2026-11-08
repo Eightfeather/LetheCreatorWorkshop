@@ -3228,12 +3228,12 @@ function renderSkillPreview(sk) {
   const coinIcons = Array.from({ length: n }, () => "<i class=\"sk-ico-coin sk-coin\"></i>").join("");
   return "<div class=\"skill-prev-card\">"
     + "<div class=\"sk-prev\">"
-    + "<div class=\"sk-base\" title=\"基础威力\">" + esc(String(Number(info.basePower) || 0)) + "</div>"
     + "<div class=\"sk-icon-col\">"
     + (powerText ? "<div class=\"sk-coinval\" title=\"第 1 枚硬币威力（变动值）\">" + esc(powerText) + "</div>" : "<div class=\"sk-coinval\"></div>")
+    + "<div class=\"sk-icon-row\">" + "<div class=\"sk-base\" title=\"基础威力\">" + esc(String(Number(info.basePower) || 0)) + "</div>"
     + "<div class=\"sk-icon-wrap " + skFrameClass(sin, info.skillTier) + "\" style=\"--skc:" + col + "\">"
     + "<span class=\"sk-lvl\"></span><span class=\"sk-icon\" style=\"" + icon + "\"></span>" + "<span class=\"sk-sin\"></span>"
-    + "</div></div>"
+    + "</div></div></div>"
     + "<div class=\"sk-name-col\">"
     + "<div class=\"sk-coins\">" + coinIcons + "</div>"
     + "<div class=\"sk-name\" style=\"background:" + col + "\">" + esc(sk.name || String(sk.id)) + "</div>"
