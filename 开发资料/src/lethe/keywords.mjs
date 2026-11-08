@@ -83,7 +83,6 @@ export function keywordTables(letheRoot) {
   // 少数标签没有中文名（如 TabExplain 的 name 为空），它们是合法的「纯 id 标签」，
   // 在描述里以 [TabExplain] 出现，因此保留 id、zh 置空。
   const sinNames = new Set(['暴怒', '色欲', '怠惰', '暴食', '忧郁', '傲慢', '嫉妒', '疯狂', '哀叹']);
-  const TIMING_LIKE = /时$|后$|开始时$|结束时$|前$|计数$|阶段$/;
   const displayTimings = [];
   const tags = [];
   const sins = [];
@@ -91,8 +90,10 @@ export function keywordTables(letheRoot) {
     if (timingIds.has(id)) continue;
     if (sinNames.has(zh)) { sins.push({ id, zh }); continue; }
     const clean = String(zh || '').replace(/^\[|\]$/g, '').trim();
-    if (clean && TIMING_LIKE.test(clean)) { displayTimings.push({ id, zh: clean }); continue; }
-    tags.push({ id, zh });
+    // v0.9.15：时点（引擎 86 条）与技能标签严格区分。
+    // 形如 [正面命中时]/[击杀敌方时] 的条目虽然看起来像时机，但它们属于 skillTagList（技能标签），
+    // 不进 TIMING:，因此这里不再并入 displayTimings。
+    tags.push({ id, zh: clean || zh });
   }
   displayTimings.sort((a, b) => String(a.zh).localeCompare(String(b.zh), 'zh'));
   tags.sort((a, b) => (a.zh || '~').localeCompare(b.zh || '~', 'zh'));
@@ -240,24 +241,24 @@ export function analyzeDescription(text, tables) {
     let id = '';
     let candidates = [];
     let sub = false;
+    // v0.9.15：时点（引擎 86 条）与技能标签严格区分。
+    // 判定顺序按「真实数据里的写法」定：游戏描述里绝大多数用的是英文时点 id
+    // （实测 WhenUse 4,664 次 / EnemyKill 128 次，而中文同名标签各 1 次），
+    // 所以中文名先查引擎时点；只有时点表没有的（[正面命中时] 等 34 条），才作为技能标签。
     const t = timingByZh.get(key) || timingByEn.get(key);
     if (t) { kind = 'timing'; id = t.en; candidates = [t.en]; }
     else {
-      const dt = dTimingByZh.get(key) || dTimingById.get(key);
-      if (dt) { kind = 'timing'; id = dt.id; candidates = [dt.id]; sub = true; }
-    }
-    if (kind === 'unknown') {
       const g = tagByZh.get(key) || tagById.get(key);
       if (g) { kind = 'tag'; id = g.id; candidates = [g.id]; }
+    }
+    if (kind === 'unknown') {
+      const b = buffByZh.get(key);
+      if (b) { kind = 'buff'; id = b.id; candidates = b.ids; }
+      else if (buffById.has(key)) { kind = 'buff'; id = key; candidates = [key]; }
       else {
-        const b = buffByZh.get(key);
-        if (b) { kind = 'buff'; id = b.id; candidates = b.ids; }
-        else if (buffById.has(key)) { kind = 'buff'; id = key; candidates = [key]; }
-        else {
-          const k = kwByZh.get(key);
-          if (k) { kind = 'keyword'; id = k.id; candidates = k.ids; }
-          else if (kwById.has(key)) { kind = 'keyword'; id = key; candidates = [key]; }
-        }
+        const k = kwByZh.get(key);
+        if (k) { kind = 'keyword'; id = k.id; candidates = k.ids; }
+        else if (kwById.has(key)) { kind = 'keyword'; id = key; candidates = [key]; }
       }
     }
     counts[kind] = (counts[kind] || 0) + 1;

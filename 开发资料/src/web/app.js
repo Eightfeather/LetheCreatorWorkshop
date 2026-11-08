@@ -3486,7 +3486,7 @@ function descKwListHtml() {
   return '<datalist id="desc-kw-list">' + uniq.map((x) => '<option value="' + esc(x) + '">').join('') + '</datalist>';
 }
 function descKwToolsHtml() {
-  return '<div class="desc-tools"><input id="desc-kw" list="desc-kw-list" class="mb-logic" placeholder="关键词中文名（时点 / Buff）"><button class="btn ghost sm" data-act="desc-kw-insert">插入到光标处</button><span class="muted">插入后会写成 [关键词]，保存时转成游戏英文 id</span></div>';
+  return '';
 }
 function renderSkillDesc(sk) {
   const text = descTextOf(sk);
@@ -3507,20 +3507,18 @@ function renderSkillDesc(sk) {
         return '<div class="coin-desc-head"><span class="cd-tag">硬币 ' + (i + 1) + '</span>'
           + (segs > 1 ? '<span class="seg-badge">' + segs + ' 段</span>' : '')
           + '<span class="muted">' + tip + '</span></div>'
-          + '<textarea id="coin-desc-' + i + '" class="desc-input coin-desc" data-index="' + i + '" spellcheck="false" rows="' + rows + '" placeholder="例如：[命中时]对目标施加1层[烧伤]">' + esc(ct) + '</textarea>';
+          + '<div class="desc-edit"><textarea id="coin-desc-' + i + '" class="desc-input coin-desc" data-index="' + i + '" data-rich="1" data-desc="coin:' + i + '" spellcheck="false" rows="' + rows + '" placeholder="例如：[命中时]对目标施加1层[烧伤]">' + esc(ct) + '</textarea>'
+          + '<div class="desc-rich" data-rich-for="coin:' + i + '" hidden></div></div>';
       })()
-      + '<div class="desc-preview" id="coin-preview-' + i + '">' + highlightText(ct, cst.tokens || []) + '</div>'
       + '<div class="coin-check" id="coin-check-' + i + '">' + descCheckHtml(cst) + '</div>'
       + '</div>');
   }
   const gameAll = [st.game || '', ...Array.from({ length: n }, (_, i) => descStateOf('coin', i).game || '')].filter(Boolean).join('\n');
   const fromFile = (sk.descSource === 'locale') && !String(sk.descriptionEdited || '');
   return '<div class="desc-wrap">'
-    + (fromFile ? '<div class="banner soft">以下描述是从技能文件里的游戏写法还原的（[英文id] → 中文名）；改动并保存后会按游戏写法写回 locale。</div>' : '')
     + '<div class="desc-block"><div class="desc-block-head"><strong>技能描述</strong><span class="muted">技能本体（非硬币）的说明文本，用 [关键词] 书写</span></div>'
-    + descKwToolsHtml()
-    + '<textarea id="skill-desc" class="desc-input" spellcheck="false" rows="6" placeholder="例如：[使用时]使本技能的硬币威力+1">' + esc(text) + '</textarea>'
-    + '<div class="desc-preview" id="desc-preview">' + highlightText(text, st.tokens || []) + '</div>'
+    + '<div class="desc-edit"><textarea id="skill-desc" class="desc-input" data-rich="1" data-desc="skill" spellcheck="false" rows="6" placeholder="例如：[使用时]使本技能的硬币威力+1">' + esc(text) + '</textarea>'
+    + '<div class="desc-rich" data-rich-for="skill" hidden></div></div>'
     + '<div id="desc-check">' + descCheckHtml(st) + '</div></div>'
     + (() => {
       const nc = (sk.code && Array.isArray(sk.code.coins)) ? sk.code.coins.length : 0;
@@ -5991,10 +5989,10 @@ function renderPassiveDesc(p) {
   const st = S.pDescCheck || { tokens: [], unknown: [] };
   const fromFile = p.descriptionSource === 'locale' && !String(p.localeDescEdited || '');
   return '<div class="desc-wrap"><div class="desc-block"><div class="desc-block-head"><strong>被动名字与描述</strong><span class="muted">直接写入游戏本地化</span></div>'
-    + (fromFile ? '<div class="banner soft">以下描述是从被动文件里的游戏写法还原的（[英文id] → 中文名）；改动并保存后会按游戏写法写回 locale。</div>' : '')
     + '<label class="field"><span>被动名字</span><input id="p-name" class="desc-input slim" autocomplete="off" placeholder="例如 灼热抗性" value="' + esc(name) + '"></label>'
-    + '<label class="field"><span>被动描述</span><textarea id="p-desc" class="desc-input" spellcheck="false" rows="7" placeholder="例如：[回合开始时]获得1层[烧伤]">' + esc(text) + '</textarea></label>'
-    + '<div class="desc-preview" id="p-desc-preview">' + highlightText(text, st.tokens || []) + '</div>'
+    + '<label class="field"><span>被动描述</span>'
+    + '<div class="desc-edit"><textarea id="p-desc" class="desc-input" data-rich="1" data-desc="passive" spellcheck="false" rows="7" placeholder="例如：[回合开始时]获得1层[烧伤]">' + esc(text) + '</textarea>'
+    + '<div class="desc-rich" data-rich-for="passive" hidden></div></div></label>'
     + '<div class="desc-check ' + ((st.unknown || []).length ? 'bad' : 'ok') + '" id="p-desc-check">'
     + ((st.unknown || []).length ? '⚠ 有 ' + st.unknown.length + ' 个关键词未识别：' + st.unknown.map((u) => '[' + u + ']').join(' ') : '✓ 关键词检查通过')
     + '</div><div class="hint muted">保存时把 [中文关键词] 转成游戏用的英文写法写入 locale；这里显示的中文原文只存在编辑器里。</div></div></div>';
@@ -6587,10 +6585,9 @@ function renderSimpleDesc(kind, doc) {
   const fromVanilla = Boolean(doc) && doc.descriptionSource === 'vanilla';
   const fileWord = kind === 'passive' ? '被动' : 'Buff';
   return '<div class="desc-wrap"><div class="desc-block"><div class="desc-block-head"><strong>描述</strong><span class="muted">用 [关键词] 书写，保存时转游戏格式</span></div>'
-    + (fromFile ? '<div class="banner soft">这份描述是从' + fileWord + '文件里的游戏写法还原出来的（[英文id] → 中文名）；保存后会再转回英文写进 locale。</div>' : '')
-+ (fromVanilla ? '<div class="banner soft">本 Mod 没有写这份' + fileWord + '的描述，下面是从游戏原版文案还原的（[英文id] → 中文名）；修改并保存后会写进本 Mod 的 locale，形成覆盖。</div>' : '')
-    + '<textarea id="' + id + '" class="desc-input" spellcheck="false" rows="10" placeholder="例如：[回合开始时]获得1层[烧伤]">' + esc(text) + '</textarea>'
-    + '<div class="desc-preview" id="' + id + '-preview">' + highlightText(text, st.tokens || []) + '</div>'
+    + '<div class="desc-edit"><textarea id="' + id + '" class="desc-input" data-rich="1" data-desc="' + kind + '" spellcheck="false" rows="10" placeholder="例如：[回合开始时]获得1层[烧伤]">' + esc(text) + '</textarea>'
+    + '<div class="desc-rich" data-rich-for="' + kind + '" hidden></div></div>'
+    + (kind === 'buff' ? '<div class="hint muted">可用 <b>{0}</b> 表示当前 buff 强度、<b>{1}</b> 表示层数（游戏内会替换成实际数值）。</div>' : '')
     + '<div class="desc-check ' + ((st.unknown || []).length ? 'bad' : 'ok') + '" id="' + id + '-check">'
     + ((st.unknown || []).length ? '⚠ 有 ' + st.unknown.length + ' 个关键词未识别：' + st.unknown.map((u) => '[' + u + ']').join(' ') : '✓ 关键词检查通过')
     + '</div></div></div>';
@@ -7393,7 +7390,7 @@ function descPopRender(items) {
   descPopIdx = items.length ? 0 : -1;
   list.innerHTML = items.length
     ? items.map((c, i) => '<button type="button" class="desc-pop-item' + (i === 0 ? ' on' : '') + '" data-dpop="' + i + '">'
-      + '<b>' + esc(c.zh || c.name || c.id) + '</b><small>' + esc(c.kind === 'timing' ? '时点' : c.kind === 'buff' ? 'Buff' : c.kind === 'tag' ? '技能标签' : '关键词') + ' · ' + esc(c.id) + '</small></button>').join('')
+      + '<b>' + esc(c.zh || c.name || c.id) + '</b><small>' + esc(c.kind === 'timing' ? '时点' : c.kind === 'buff' ? 'Buff（局内·可作参数）' : c.kind === 'tag' ? '技能标签' : '关键词（局外释义）') + ' · ' + esc(c.id) + '</small></button>').join('')
     : '<div class="desc-pop-empty">没有匹配词条</div>';
   el.classList.add('on');
   const ta = descPopCtx && descPopCtx.ta;
@@ -7554,3 +7551,110 @@ function applyFontMode(mode) {
   document.body.style.fontFamily = FONT_STACKS[m];
 }
 applyFontMode(fontMode());
+
+
+/* ===== 描述富文本显示态（v0.9.15）=====
+   规则：聚焦 = 纯文本编辑；失焦 = 就地显示（[] 上色）；点击 = 落光标（首次落末尾、
+   之后按点击位置）；点 [] 词条 = 编辑该词条并在下方展开候选。 */
+function descRichTokens(ta) {
+  const key = String(ta.dataset.desc || '');
+  if (key === 'skill') return (descStateOf('skill').tokens || []);
+  if (key.startsWith('coin:')) return (descStateOf('coin', Number(key.slice(5))).tokens || []);
+  if (key === 'passive') return ((S.pDescCheck && S.pDescCheck.tokens) || []);
+  if (key === 'buff') return ((S.bDescCheck && S.bDescCheck.tokens) || []);
+  return [];
+}
+
+function descRichHtml(text, tokens) {
+  if (!tokens || !tokens.length) return esc(text);
+  let out = '';
+  let idx = 0;
+  for (const t of tokens) {
+    const at = text.indexOf(t.raw, idx);
+    if (at < 0) continue;
+    out += esc(text.slice(idx, at));
+    const cls = t.kind === 'unknown' ? 'kw-bad'
+      : t.kind === 'timing' ? 'kw-timing'
+        : t.kind === 'tag' ? 'kw-tag'
+          : t.kind === 'keyword' ? 'kw-kw' : 'kw-buff';
+    out += '<span class="' + cls + ' desc-tok" data-off="' + at + '" title="' + esc(t.id || '未识别') + '">'
+      + esc(t.raw) + '</span>';
+    idx = at + t.raw.length;
+  }
+  return out + esc(text.slice(idx));
+}
+
+function descRichEnter(ta) {
+  const box = ta.parentElement;
+  if (!box) return;
+  const rich = box.querySelector('[data-rich-for]');
+  if (!rich) return;
+  rich.innerHTML = descRichHtml(ta.value, descRichTokens(ta));
+  rich.hidden = false;
+  ta.hidden = true;
+  S.descRichFirst = String(ta.dataset.desc || '');
+}
+
+function descRichLeave(ta) {
+  ta.hidden = false;
+  const rich = ta.parentElement && ta.parentElement.querySelector('[data-rich-for]');
+  if (rich) rich.hidden = true;
+}
+
+function descOffsetAtPoint(rich, x, y) {
+  try {
+    const r = document.caretRangeFromPoint(x, y);
+    if (!r) return null;
+    const pre = document.createRange();
+    pre.selectNodeContents(rich);
+    pre.setEnd(r.startContainer, r.startOffset);
+    return pre.toString().length;
+  } catch (e) { return null; }
+}
+
+async function descPopForToken(ta, name, off) {
+  descPopCtx = { ta, start: off, q: name };
+  try {
+    const res = await api('/api/keywords/suggest?q=' + encodeURIComponent(name) + '&limit=5');
+    if (!descPopCtx || descPopCtx.q !== name) return;
+    descPopRender((res.list || []).slice(0, 5));
+  } catch (e) { descPopHide(); }
+}
+
+document.addEventListener('focusin', (e) => {
+  const ta = e.target;
+  if (!ta || !ta.dataset || !ta.dataset.rich) return;
+  descRichLeave(ta);
+});
+
+document.addEventListener('focusout', (e) => {
+  const ta = e.target;
+  if (!ta || !ta.dataset || !ta.dataset.rich) return;
+  setTimeout(() => {
+    if (document.activeElement === ta) return;
+    const pop = document.querySelector('.desc-pop.on');
+    if (pop && descPopCtx && descPopCtx.ta === ta) return;
+    descRichEnter(ta);
+  }, 160);
+});
+
+document.addEventListener('click', (e) => {
+  const rich = e.target.closest && e.target.closest('.desc-rich');
+  if (!rich) return;
+  const ta = rich.parentElement && rich.parentElement.querySelector('[data-rich]');
+  if (!ta) return;
+  descRichLeave(ta);
+  ta.focus();
+  const tok = e.target.closest('.desc-tok');
+  if (tok) {
+    const off = Number(tok.dataset.off || 0);
+    const raw = tok.textContent || '';
+    ta.setSelectionRange(off + 1, Math.max(off + 1, off + raw.length - 1));
+    descPopForToken(ta, raw.replace(/^\[/, '').replace(/\]$/, ''), off);
+    return;
+  }
+  const first = S.descRichFirst === String(ta.dataset.desc || '');
+  const pos = first ? ta.value.length : (descOffsetAtPoint(rich, e.clientX, e.clientY) ?? ta.value.length);
+  S.descRichFirst = null;
+  ta.setSelectionRange(pos, pos);
+}, true);

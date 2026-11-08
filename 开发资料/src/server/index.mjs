@@ -16,7 +16,7 @@ import { markCleanExit, markRunning } from '../lethe/state.mjs';
 import { migrateToLcw } from '../lethe/lcw.mjs';
 import { assetBase64 } from '../assets.mjs';
 
-export const VERSION = '0.9.14';
+export const VERSION = '0.9.15';
 const WEB_ROOT = join(SRC_DIR, 'web');
 
 export function createServer({ token, state, log, session, autosave } = {}) {

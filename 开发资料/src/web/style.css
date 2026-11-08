@@ -1804,3 +1804,11 @@ body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
   .skill-body{grid-template-columns:minmax(0,1fr) !important;grid-template-areas:"prev" "info" "editor" !important}
 }
 /* @skill-layout-v2:end */
+
+/* @desc-rich-v1:start */
+.desc-edit{position:relative}
+.desc-rich{min-height:96px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#1b1512;color:var(--ink);white-space:pre-wrap;word-break:break-word;line-height:1.55;cursor:text;font:inherit}
+.desc-rich[hidden]{display:none}
+.desc-rich .desc-tok{cursor:pointer;border-bottom:1px dotted currentColor}
+.desc-rich .desc-tok:hover{background:rgba(198,161,91,.16)}
+/* @desc-rich-v1:end */
