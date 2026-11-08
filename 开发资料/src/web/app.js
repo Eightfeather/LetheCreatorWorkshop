@@ -3201,7 +3201,7 @@ function renderSkillArea(back) {
     + '<span class="state-dot ' + (sk.updatedAt ? 'on' : '') + '"></span></button>').join('');
   const mods = filteredModules().slice().sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).map((m) => '<div class="module-item" data-module="' + esc(m.id) + '">'
     + '<div class="m-head"><span class="tag ' + (m.test ? 'warn' : '') + '">' + (m.test ? '测试' : '模块') + '</span><strong>' + esc(m.name || m.id) + '</strong></div>'
-    + '<p class="m-desc">' + esc(m.description || '') + '</p></div>').join('');
+    + modCodeBlock(m) + '</div>').join('');
   const disabled = S.mods.find((m) => m.name === S.selected)?.enabled === false;
   return '<div class="pane-head">' + back
     + '<div><h2>技能编辑</h2><p class="muted">' + esc(S.selected || '') + '</p></div></div>'
@@ -3415,8 +3415,10 @@ function renderSkillGroups(doc) {
 
 function renderSkillCode(code) {
   const colors = S.keywords?.coinColors || [{ id: 'GREY', zh: '灰' }];
+  const unrec = ((S.skill && S.skill.unrec) || []);
+  const skillUnrec = unrecHtml(unrec, 'skill', -1);
   const skillZone = '<div class="drop-zone skill-zone" data-drop="skill">'
-    + (chipHtml(code.skill, 'skill', -1) || '<span class="dz-hint">把模块拖到这里：作用于技能本身</span>') + '</div>'
+    + (chipHtml(code.skill, 'skill', -1) || (skillUnrec ? '' : '<span class="dz-hint">把模块拖到这里：作用于技能本身</span>')) + skillUnrec + '</div>'
     + renderSkillGroups(S.skill || code)
     ;
   const coins = (code.coins || []).map((c, i) => '<div class="coin-card"><div class="coin-head"><i class="coin-ico c-' + coinClassOf(c.color) + '" title="硬币颜色"></i><strong>硬币 ' + (i + 1) + '</strong>'
@@ -3424,7 +3426,7 @@ function renderSkillCode(code) {
     + colors.map((x) => '<option value="' + esc(x.id) + '"' + (String(c.color) === String(x.id) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('')
     + '</select><label class="inline-field">变动值 <input type="text" inputmode="decimal" data-num="1" data-coin="' + i + '" data-key="value" value="' + esc(c.value ?? 0) + '"></label></div>'
     + '<div class="drop-zone coin-zone" data-drop="coin" data-index="' + i + '">'
-    + (chipHtml(c.modules, 'coin', i) || '<span class="dz-hint">拖入模块：作用于这枚硬币</span>') + '</div></div>').join('');
+    + (chipHtml(c.modules, 'coin', i) || (unrecHtml(unrec, 'coin', i) ? '' : '<span class="dz-hint">拖入模块：作用于这枚硬币</span>')) + unrecHtml(unrec, 'coin', i) + '</div></div>').join('');
   return '<div class="code-wrap"><div class="code-col"><div class="col-title">技能置入区</div>' + skillZone + '</div>'
     + '<div class="coin-col"><div class="col-title">硬币置入区 <span class="muted">（数量由「硬币数量」决定）</span></div>'
     + (coins || '<div class="list-empty">硬币数量至少为 1</div>') + '</div></div>'
@@ -3729,7 +3731,14 @@ async function saveCode() {
     method: 'POST',
     body: { name: S.selected, id: S.skillId, code: { skill: code.skill || [], coins: code.coins || [] } },
   });
-  S.skill = { ...S.skill, code: res.meta.code, info: res.meta.info };
+  const codes = (res.meta.code && res.meta.code.coins) || [];
+  const cols = codes.map((c) => String((c && c.color) || 'GREY').toUpperCase());
+  S.skill = {
+    ...S.skill,
+    code: res.meta.code,
+    info: res.meta.info,
+    fileInfo: { ...(S.skill.fileInfo || {}), coinColors: cols.length ? cols : (S.skill.fileInfo || {}).coinColors },
+  };
   render();
 }
 
@@ -4079,11 +4088,118 @@ function filteredModules2() {
 function renderModulePanel(searchId, value) {
   const mods = filteredModules2().map((m) => '<div class="module-item" data-module="' + esc(m.id) + '">'
     + '<div class="m-head"><span class="tag ' + (m.test ? 'warn' : '') + '">' + (m.test ? '测试' : '模块') + '</span><strong>' + esc(m.name || m.id) + '</strong></div>'
-    + '<p class="m-desc">' + esc(m.description || '') + '</p></div>').join('');
+    + modCodeBlock(m) + '</div>').join('');
   return '<section class="panel module-list"><div class="panel-head">模块列表 <span class="count">' + (S.modules || []).length + '</span></div>'
     + '<div class="panel-search"><input id="' + searchId + '" class="search" placeholder="搜索 [命中时] / 描述" value="' + esc(value) + '"></div>'
     + '<div class="panel-body mods">' + (mods || '<div class="list-empty">没有模块</div>') + '</div>'
     + '<div class="panel-foot"><span class="hint muted">模块由「模块编辑」制作；测试模块仅供拖拽演示，不产生实际效果</span></div></section>';
+}
+
+
+/* ---------- v0.9.18：模块代码预览 + 未识别脚本块 ---------- */
+
+function modCodeBlock(m) {
+  const code = String((m && m.code) || '').trim();
+  if (!code) return m && m.description ? '<p class="m-desc">' + esc(m.description) + '</p>' : '';
+  return '<pre class="m-code" title="' + esc(code) + '">' + esc(code) + '</pre>';
+}
+
+function curDocForUnrec() {
+  if (S.editKind === 'skill') return S.skill;
+  if (S.editKind === 'passive') return S.passive;
+  if (S.editKind === 'buff') return S.buff;
+  return null;
+}
+
+function unrecMatch(zone, coin, index) {
+  const doc = curDocForUnrec();
+  const list = (doc && doc.unrec) || [];
+  return list.find((u) => {
+    if (Number(u.index) !== Number(index)) return false;
+    if (zone === 'coin') return u.where === 'coin' && Number(u.coin) === Number(coin);
+    if (zone === 'skill') return u.where === 'skill';
+    return u.where === 'main';
+  }) || null;
+}
+
+function unrecHtml(all, zone, coin) {
+  const list = (all || []).filter((u) => {
+    if (zone === 'coin') return u.where === 'coin' && Number(u.coin) === Number(coin);
+    if (zone === 'skill') return u.where === 'skill';
+    return u.where === 'main';
+  });
+  return list.map((u) => {
+    const txt = String(u.text || '');
+    const head = u.parseable ? '未识别模块 · 可解析' : (u.modular ? '未识别模块' : '未识别脚本');
+    return '<span class="chip unrec" title="' + esc(txt) + '">'
+      + '<span class="unrec-body"><b class="unrec-head">' + head + '</b><span class="unrec-code">' + esc(txt) + '</span></span>'
+      + (u.parseable ? '<button class="chip-edit" data-act="edit-unrec" data-zone="' + esc(zone) + '" data-coin="' + esc(u.coin) + '" data-index="' + esc(u.index) + '" title="用积木临时编辑这段脚本（保存只影响这一处）">🖊</button>' : '')
+      + '<button class="chip-x" data-act="remove-unrec" data-zone="' + esc(zone) + '" data-coin="' + esc(u.coin) + '" data-index="' + esc(u.index) + '" title="从这一处删除">×</button>'
+      + '</span>';
+  }).join('');
+}
+
+function unrecWhereOf(zone) {
+  return zone === 'coin' ? 'coin' : (zone === 'skill' ? 'skill' : 'main');
+}
+
+async function unrecWrite(zone, coin, index, text) {
+  const kind = (S.mbTemp && S.mbTemp.kind) || S.editKind;
+  const id = kind === 'skill' ? S.skillId : kind === 'passive' ? S.passiveId : S.buffId;
+  return api('/api/script/slot', { method: 'POST', body: { name: S.selected, kind, id, where: unrecWhereOf(zone), coin, index, text } });
+}
+
+async function reloadAfterUnrec(kind) {
+  if (kind === 'skill') { await reloadSkill(); }
+  else if (kind === 'passive') { await reloadPassive(); }
+  else if (kind === 'buff') { await reloadBuff(); }
+  render();
+}
+
+async function saveTempModule() {
+  const t = mbCompileScript();
+  if (!t || t.indexOf('// 还没有积木') === 0) { toast('画布是空的，没有可写回的脚本', 'warn'); return false; }
+  const lines = String(t).split('\n').map((x) => x.trim()).filter(Boolean);
+  if (lines.length > 1) toast('这个位置只能放一条脚本，已取用第一行', 'warn');
+  const one = lines[0];
+  const tmp = S.mbTemp;
+  await unrecWrite(tmp.where === 'coin' ? 'coin' : (tmp.where === 'skill' ? 'skill' : 'main'), tmp.coin, tmp.index, one);
+  S.mbTemp = null;
+  S.mb = null;
+  S.mbDoc = null;
+  S.moduleEditing = null;
+  S.editKind = tmp.kind;
+  await reloadAfterUnrec(tmp.kind);
+  toast('已写回这一处（只改动了这个位置）', 'ok');
+  return true;
+}
+
+async function removeUnrec(zone, coin, index) {
+  const kind = S.editKind;
+  await unrecWrite(zone, coin, index, '');
+  await reloadAfterUnrec(kind);
+  toast('已删除这段未识别脚本', 'ok');
+}
+
+async function openTempEditor(zone, coin, index) {
+  const hit = unrecMatch(zone, coin, index);
+  if (!hit) { toast('找不到这段脚本', 'err'); return; }
+  if (!hit.parseable) { toast('这段脚本无法解析成积木，只能在「查看源代码」里手动修改', 'warn'); return; }
+  const r = await api('/api/script/parse', { method: 'POST', body: { text: hit.text } });
+  if (!r || !r.parseable) { toast('解析失败，只能用「查看源代码」修改', 'warn'); return; }
+  await ensureScopes();
+  await ensureKeywords();
+  await loadModularTables();
+  S.mbTemp = { kind: S.editKind, id: S.editKind === 'skill' ? S.skillId : S.editKind === 'passive' ? S.passiveId : S.buffId, where: hit.where, coin: hit.coin, index: hit.index, text: hit.text };
+  S.editKind = 'module';
+  S.moduleEditing = '__temp__';
+  S.mbDoc = { id: '__temp__', name: '未识别模块（临时）', scope: 'common', test: false, description: '从这处原始脚本解析而来；保存只写回这一处。' };
+  S.mb = {
+    program: { version: 1, blocks: mbMigrateLegacy(mbNestFlat((r.program && r.program.blocks) || [])) },
+    sel: null, search: '', cat: 'timing', carry: null, drag: null, showProps: false, showScript: false,
+    showMissing: false, missingIds: null, hist: [], redo: [], savedAt: '', forceSave: false, dirty: false,
+  };
+  render();
 }
 
 /* ------------------------------ 模块编辑 ------------------------------ */
@@ -4098,6 +4214,7 @@ function renderModuleArea(back) {
   const rows = (S.modules || []).map((m) => '<div class="module-row' + (m.test ? ' test' : '') + '">'
     + '<button class="mod-open" data-act="open-module" data-id="' + esc(m.id) + '">'
     + '<span class="mod-name">' + esc(m.name || m.id) + '</span>'
+    + modCodeBlock(m)
     + '<span class="mod-meta"><span class="tag">' + esc(scopeLabel(m.scope)) + '</span>'
     + (m.test ? '<span class="tag warn">测试</span>' : '')
     + '<span class="muted">' + (m.blockCount || 0) + ' 块</span>'
@@ -4672,12 +4789,14 @@ function mbToolbarHtml() {
     + '<h2>' + esc(m.name || m.id) + '</h2>'
     + '<span class="tag">用途：' + esc(scopeZhOf(m.scope || 'common')) + '</span>'
     + (m.test ? '<span class="tag warn">测试模块 · 只读</span>' : '')
+    + (S.mbTemp ? '<span class="tag warn">临时编辑未识别模块 · 保存只影响这一处</span>' : '')
     + '</div><span class="spacer"></span>'
     + '<button class="btn ghost sm" data-act="mb-code">查看输出代码</button>'
+    + '<button class="btn ghost sm" data-act="mb-saveas" title="把当前积木另存为一个新模块">另存为…</button>'
     + '<button class="btn ghost sm" data-act="mb-undo"' + ((S.mb.hist || []).length ? '' : ' disabled') + ' title="撤销 (Ctrl+Z)">↶ 撤销</button>'
     + '<button class="btn ghost sm" data-act="mb-redo"' + ((S.mb.redo || []).length ? '' : ' disabled') + ' title="重做 (Ctrl+Y)">↷ 重做</button>'
     + '<button class="btn ghost sm" data-act="mb-clear">清空</button>'
-    + '<button class="btn primary sm" data-act="mb-save"' + (m.test ? ' disabled' : '') + '>保存模块</button></div>';
+    + '<button class="btn primary sm" data-act="mb-save"' + (m.test ? ' disabled' : '') + '>' + (S.mbTemp ? '写回这一处' : '保存模块') + '</button></div>';
 }
 
 function mbPropsHtml() {
@@ -5664,7 +5783,34 @@ function openMbEdit(chain) {
 }
 
 Object.assign(actions, {
-  'close-module': () => { mbLeaveGuard(() => { S.moduleEditing = null; S.mb = null; S.mbDoc = null; render(); }); },
+  'close-module': () => {
+    if (S.mbTemp) {
+      S.mbTemp = null;
+      const backKind = S.editKind;
+      mbLeaveGuard(() => { S.moduleEditing = null; S.mb = null; S.mbDoc = null; S.editKind = 'skill'; render(); });
+      return;
+    }
+    mbLeaveGuard(() => { S.moduleEditing = null; S.mb = null; S.mbDoc = null; render(); });
+  },
+  'remove-unrec': async (el) => {
+    const zone = el.dataset.zone || 'main';
+    await removeUnrec(zone, Number(el.dataset.coin), Number(el.dataset.index));
+  },
+  'edit-unrec': async (el) => {
+    const zone = el.dataset.zone || 'main';
+    await openTempEditor(zone, Number(el.dataset.coin), Number(el.dataset.index));
+  },
+  'mb-saveas': async () => {
+    const cur = (S.mbDoc && S.mbDoc.name) || '新模块';
+    const name = window.prompt('另存为模块名称（会新建一个模块，原位置不受影响）', cur === '未识别模块（临时）' ? '新模块' : cur + ' 副本');
+    if (!name || !String(name).trim()) return;
+    const created = await api('/api/module/create', { method: 'POST', body: { name: String(name).trim(), scope: (S.mbDoc && S.mbDoc.scope) || 'common' } });
+    const id = created.module.id;
+    await api('/api/module/program', { method: 'POST', body: { id, program: S.mb.program, expectUpdatedAt: '', force: true } });
+    await loadModules(true);
+    toast('已另存为模块：' + String(name).trim(), 'ok');
+    render();
+  },
   'mb-leave-discard': () => { S.mb.saved = JSON.stringify(S.mb.program); const t = S.mb.leave; closeModal(); if (t) t(); },
   'mb-leave-missing-ok': () => { const t = S.mb && S.mb.leave; closeModal(); mbGuardDirty(t); },
   'mb-leave-save': async () => {
@@ -5746,6 +5892,11 @@ Object.assign(actions, {
     render();
   },
   'mb-save': async () => {
+    if (S.mbTemp) {
+      const miss = mbMissingInfo();
+      if (miss && miss.length) { S.mb.showMissing = true; toast('还有必填参数没填：' + miss.slice(0, 3).join('、'), 'warn'); render(); return false; }
+      return saveTempModule();
+    }
     const info = mbMissingInfo();
     let res = null;
     const body = { id: S.moduleEditing, program: S.mb.program, expectUpdatedAt: S.mb.savedAt || '', force: !!S.mb.forceSave };
@@ -6585,7 +6736,7 @@ function renderSimpleCode(kind, doc) {
   const chips = chipHtml(code.modules, kind, -1);
   return '<div class="code-wrap code-simple"><div class="code-col"><div class="col-title">' + (kind === 'passive' ? '被动' : 'Buff') + '置入区</div>'
     + '<div class="drop-zone ' + kind + '-zone" data-drop="' + kind + '">'
-    + (chips || '<span class="dz-hint">把右侧模块拖到这里</span>') + '</div></div>'
+    + (chips || (unrecHtml(doc.unrec || [], 'main', -1) ? '' : '<span class="dz-hint">把右侧模块拖到这里</span>')) + unrecHtml(doc.unrec || [], 'main', -1) + '</div></div>'
     + '<div class="hint muted">从右侧模块列表拖入；这里只记录排布，尚未落到游戏脚本（映射留待后续版本）。</div>'
     + renderPassiveScripts(doc) + '</div>';
 }

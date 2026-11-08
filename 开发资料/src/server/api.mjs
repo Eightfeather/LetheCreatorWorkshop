@@ -24,6 +24,7 @@ import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffI
 import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestCandidates, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
 import { TIMING_ARGS } from '../knowledge/timing-args.mjs';
 import { canonicalCode, parseScripts } from '../lethe/program-parse.mjs';
+import { writeScriptSlot, scriptSlotList } from '../lethe/scriptslot.mjs';
 import { applyMd, applyMdAll, deleteMd, fromGameEntity, getMd, listMd, mdSchemas, nextMdId, removeLanded, saveMd } from '../lethe/mdtables.mjs';
 import { pickKinds, pickRecord, pickSearch } from '../lethe/picker.mjs';
 /* MD_IMPORTED_v0_9_0 */
@@ -123,6 +124,30 @@ function skillScriptGroups(letheRoot, entity) {
     });
   });
   return groups;
+}
+
+
+/** v0.9.18：某实体里「不是编辑器模块」的脚本（未匹配到模块库的原始脚本） */
+function unrecSlots(letheRoot, mod, kind, id) {
+  let slots = [];
+  try { slots = scriptSlotList(letheRoot, { name: mod, kind, id }); } catch (e) { return []; }
+  let byCode = new Map();
+  try { byCode = moduleCodeIndex(letheRoot); } catch (e) { byCode = new Map(); }
+  const out = [];
+  for (const s of slots) {
+    const text = String(s.text || '').trim();
+    if (!text) continue;
+    const modular = isModularScript(text);
+    if (modular) {
+      let key = '';
+      try { key = canonicalCode(text); } catch (e) { key = ''; }
+      if (key && byCode.has(key)) continue;
+    }
+    let parseable = false;
+    if (modular) { try { const p = parseScripts([text]); parseable = Boolean(p && p.rows && p.rows.length); } catch (e) {} }
+    out.push({ where: s.where, coin: s.coin, index: s.index, text, modular, parseable });
+  }
+  return out;
 }
 
 function moduleCodeIndex(letheRoot) {
@@ -850,6 +875,7 @@ export function buildApi(ctx) {
           })(),
           coinTotal: ((((one.entity || {}).skillData) || [])[0] || {}).coinList ? ((((one.entity || {}).skillData) || [])[0].coinList || []).length : 0,
           scriptGroups: skillScriptGroups(letheRoot, one.entity),
+          unrec: unrecSlots(letheRoot, q.get('name'), 'skill', one.id),
         },
       };
     },
@@ -939,7 +965,12 @@ export function buildApi(ctx) {
 
     'GET /api/modules': () => {
       const { letheRoot } = need();
-      return { ok: true, modules: listModules(letheRoot) };
+      const mods = listModules(letheRoot).map((m) => {
+        let code = '';
+        try { const rows = compileProgram(m.program) || []; code = Array.isArray(rows) ? rows.join('\n') : String(rows || ''); } catch (e) { code = ''; }
+        return { ...m, code };
+      });
+      return { ok: true, modules: mods };
     },
 
     'GET /api/module/usage': () => {
@@ -1055,6 +1086,7 @@ export function buildApi(ctx) {
           scripts,
           parsed,
           matchedModules,
+      unrec: unrecSlots(letheRoot, q.get('name'), 'passive', one.id),
           rel: one.rel,
           name: (one.locale && one.locale.name) || '',
           localeName: (one.locale && one.locale.name) || '',
@@ -1242,6 +1274,7 @@ export function buildApi(ctx) {
           plainAbilities,
           parsed,
           matchedModules,
+      unrec: unrecSlots(letheRoot, q.get('name'), 'buff', one.id),
           description: descText,
           descriptionSource: descSource,
         },
@@ -1400,6 +1433,27 @@ export function buildApi(ctx) {
       autosave.touch('');
       log ? log('[wb] 从 ' + found.source + (found.mod ? '/' + found.mod : '') + ' 载入 ' + kind + ' ' + found.entity.id + ' → 新草稿 ' + id) : 0;
       return { ok: true, id: doc.id, from: { source: found.source, mod: found.mod, id: String(found.entity.id) }, zh: spec ? spec.zh : kind };
+    },
+
+    /* ---------- v0.9.18：单条脚本槽（未识别模块） ---------- */
+    'POST /api/script/slot': (body) => {
+      const { letheRoot } = need();
+      const res = writeScriptSlot(letheRoot, {
+        name: body.name, kind: body.kind, id: body.id,
+        where: body.where || 'main', coin: body.coin, index: body.index, text: body.text,
+      });
+      if (body.name) { try { session.record(body.name, String(body.kind || 'skill') + ':' + body.id, '编辑未识别脚本', res.changes || []); } catch (e) {} }
+      return { ok: true, ...res };
+    },
+
+    'POST /api/script/parse': (body) => {
+      const text = String((body && body.text) || '');
+      if (!isModularScript(text)) return { ok: false, parseable: false, error: '这不是 Modular 语法，无法解析成积木' };
+      let program = null;
+      try { program = parseScripts([text]); } catch (e) { program = null; }
+      const rows = (program && program.rows) || [];
+      const blocks = (program && program.program && program.program.blocks) || [];
+      return { ok: true, parseable: rows.length > 0, program: blocks.length ? { version: 1, blocks } : null, rows: rows.length };
     },
 
     'POST /api/reveal': async (body) => {      const p = String(body.path || '');
