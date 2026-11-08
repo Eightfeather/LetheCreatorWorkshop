@@ -400,6 +400,38 @@ export function suggestName(token, tables) {
 }
 
 /** 批量：给 analyzeDescription 的 unknown 列表配建议。 */
+/** 描述输入时的候选（prefix/includes/编辑距离），返回 [{kind,id,zh,name,score}] */
+export function suggestCandidates(q, tables, limit = 5) {
+  const query = String(q || '').trim();
+  if (!query) return [];
+  const t = tables || {};
+  const pool = [];
+  const push = (kind, id, zh, name) => { if (id) pool.push({ kind, id: String(id), zh: String(zh || ''), name: String(name || id) }); };
+  for (const x of t.timings || []) push('timing', x.en, x.zh, x.zh || x.en);
+  for (const x of t.tags || []) push('tag', x.id, x.zh, x.zh || x.id);
+  for (const b of t.buffs || []) push('buff', (b.ids && b.ids[0]) || b.id, b.zh, b.zh || b.native || b.id);
+  for (const k of t.keywords || []) push('keyword', (k.ids && k.ids[0]) || k.id, k.zh, k.zh || k.native || k.id);
+  const seen = new Set();
+  const out = [];
+  const lq = query.toLowerCase();
+  for (const c of pool) {
+    const zh = c.zh.toLowerCase();
+    const id = c.id.toLowerCase();
+    let score = 0;
+    if (zh === lq || id === lq) score = 1;
+    else if (zh.startsWith(lq) || id.startsWith(lq)) score = 0.92;
+    else if (zh.includes(lq) || id.includes(lq)) score = 0.78;
+    else { const sm = suggestName(query, { timings: [], buffs: [{ zh: c.zh, ids: [c.id] }], keywords: [], tags: [] }) || []; score = Math.max((sm[0] && sm[0].score) || 0, 0); }
+    if (score < 0.45) continue;
+    const key = c.kind + ':' + c.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...c, score });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
+
 export function suggestUnknown(unknown, tables) {
   const list = (unknown || []).map((u) => suggestName(u, tables)).filter(Boolean);
   return list.slice(0, 6);

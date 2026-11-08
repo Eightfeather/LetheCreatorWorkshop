@@ -21,7 +21,7 @@ import { createSkill, getSkill, importSkills, listSkills, searchSkillIndex, skil
 import { BUFF_CLASSES, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, skillCodePath } from '../lethe/meta.mjs';
 import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex } from '../lethe/passives.mjs';
 import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex } from '../lethe/buffs.mjs';
-import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
+import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestCandidates, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
 import { TIMING_ARGS } from '../knowledge/timing-args.mjs';
 import { canonicalCode, parseScripts } from '../lethe/program-parse.mjs';
 import { applyMd, applyMdAll, deleteMd, fromGameEntity, getMd, listMd, mdSchemas, nextMdId, removeLanded, saveMd } from '../lethe/mdtables.mjs';
@@ -733,12 +733,19 @@ export function buildApi(ctx) {
       };
     },
 
+    'GET /api/keywords/suggest': (q) => {
+      const { letheRoot } = need();
+      const text = String(q.get('q') || '').trim();
+      const limit = Math.max(1, Math.min(10, Number(q.get('limit')) || 5));
+      if (!text) return { ok: true, list: [] };
+      return { ok: true, list: suggestCandidates(text, keywordTables(letheRoot), limit) };
+    },
     'POST /api/description/check': (body) => {
       const { letheRoot } = need();
       const tables = keywordTables(letheRoot);
       const text = String(body?.text ?? '');
       const res = analyzeDescription(text, tables);
-      const suggestions = suggestUnknown(res.unknown || [], tables);
+      const suggestions = suggestUnknown(res.unknown || [], tables).slice(0, 1);
       return { ok: true, ...res, suggestions, game: toGameText(text, tables) };
     },
 
@@ -838,6 +845,7 @@ export function buildApi(ctx) {
               skillTier: Number(one.entity.skillTier) || 1,
               coinValues: coins0.map((c) => Number((c || {}).scale) || 0),
               coinOps: coins0.map((c) => String((c || {}).operatorType || '').toUpperCase()),
+              coinColors: coins0.map((c) => String((c || {}).color || 'GREY').toUpperCase()),
             };
           })(),
           coinTotal: ((((one.entity || {}).skillData) || [])[0] || {}).coinList ? ((((one.entity || {}).skillData) || [])[0].coinList || []).length : 0,

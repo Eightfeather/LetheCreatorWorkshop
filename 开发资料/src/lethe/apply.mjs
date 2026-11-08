@@ -85,7 +85,8 @@ export function saveSkillFields(letheRoot, { name, id, info = {} } = {}) {
 
   if (info.skillTier != null && info.skillTier !== '') {
     const t = Number(info.skillTier);
-    if (Number.isFinite(t) && t >= 1 && t <= 7) ent.skillTier = t;
+    if (Number.isFinite(t) && t >= 1 && t <= 3) ent.skillTier = Math.round(t);
+        else if (Number.isFinite(t)) ent.skillTier = Math.min(3, Math.max(1, Math.round(t)));
   }
   const op = String(info.sign) === 'negative' ? 'SUB' : 'ADD';
   const n = Number(info.coinCount);
@@ -133,7 +134,7 @@ export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displa
   const { doc, ent } = loadEntityDoc(dir, found);
   const sid = String(id);
 
-  if (tier != null) ent.skillTier = Number(tier);
+  if (tier != null) ent.skillTier = Math.min(3, Math.max(1, Math.round(Number(tier) || 1)));
   ent.skillData = Array.isArray(ent.skillData) && ent.skillData.length ? ent.skillData : [{}];
   const sd = ent.skillData[0] || (ent.skillData[0] = {});
 

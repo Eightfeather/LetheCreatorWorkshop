@@ -75,7 +75,40 @@ export function i18nTables(letheRoot, force = false) {
   const plainText = (t) => String(t).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   const isDeprecated = (t) => /<s>|<\/s>/i.test(String(t));
   const unitKeyword = {};
+  const FIXED_TAGS = { SMALL: '小体型', LARGE: '大体型' };
   const association = {};
+  try {
+    const modsDir = join(letheRoot, 'mods');
+    for (const mod of readdirSync(modsDir)) {
+      const loc = join(modsDir, mod, 'custom_limbus_locale', 'EN');
+      let cats = [];
+      try { cats = readdirSync(loc); } catch (e) { continue; }
+      for (const cat of cats) {
+        if (!/^(keywordList|bufList|uiList)$/i.test(cat)) continue;
+        let files = [];
+        try { files = readdirSync(join(loc, cat)).filter((f) => /\.json$/i.test(f)); } catch (e) { continue; }
+        for (const f of files) {
+          let doc = null;
+          try { doc = JSON.parse(readFileSync(join(loc, cat, f), 'utf8')); } catch (e) { continue; }
+          const walk = (obj) => {
+            for (const [k, v] of Object.entries(obj || {})) {
+              const id = (v && v.id) || k;
+              const nm = v && (v.name || v.content);
+              if (id && nm && /^[A-Za-z][A-Za-z0-9_]*$/.test(String(id))) {
+                if (!unitKeyword[id]) unitKeyword[id] = String(nm);
+                if (!association[id]) association[id] = String(nm);
+              }
+            }
+          };
+          if (doc && typeof doc === 'object') walk(doc);
+        }
+      }
+    }
+  } catch (e) {}
+  for (const [id, zh] of Object.entries(FIXED_TAGS)) {
+    if (!unitKeyword[id]) unitKeyword[id] = zh;
+    if (!association[id]) association[id] = zh;
+  }
   const unitDeprecated = [];
   const assocDeprecated = [];
   const put = (map, dep, id, text) => {

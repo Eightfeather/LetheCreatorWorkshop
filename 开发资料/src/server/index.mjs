@@ -14,8 +14,9 @@ import { EditSession } from '../lethe/session.mjs';
 import { AutoSaver } from '../lethe/autosave.mjs';
 import { markCleanExit, markRunning } from '../lethe/state.mjs';
 import { migrateToLcw } from '../lethe/lcw.mjs';
+import { assetBase64 } from '../assets.mjs';
 
-export const VERSION = '0.9.11';
+export const VERSION = '0.9.13';
 const WEB_ROOT = join(SRC_DIR, 'web');
 
 export function createServer({ token, state, log, session, autosave } = {}) {
@@ -61,6 +62,20 @@ export function createServer({ token, state, log, session, autosave } = {}) {
       }
 
       // 游戏字体：按私服根定位 LimbusCompany_Data/Lang/*/Font/Context/*.ttf，直接流式返回（不走内嵌资源）
+  if (pathname === '/font/chinese.ttf' || pathname === '/font/game.ttf') {
+    const mode = (() => { try { return loadConfig().fontMode || 'builtin'; } catch (e) { return 'builtin'; } })();
+    if (mode === 'builtin' || mode === 'auto') {
+      const b64 = assetBase64('web/fonts/game.ttf');
+      if (b64) {
+        const buf = Buffer.from(b64, 'base64');
+        res.writeHead(200, { 'content-type': 'font/ttf', 'content-length': String(buf.length), 'cache-control': 'public, max-age=86400' });
+        res.end(buf);
+        return;
+      }
+    }
+    if (mode === 'system') { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); res.end('\u5f53\u524d\u4f7f\u7528\u7cfb\u7edf\u5b57\u4f53'); return; }
+    if (pathname === '/font/game.ttf') { /* 继续走私服字体兜底 */ }
+  }
   if (pathname === '/font/chinese.ttf') {
     const hit = findGameFont(state.letheRoot);
     if (!hit) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); res.end('没有找到游戏字体'); return; }

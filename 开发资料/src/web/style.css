@@ -1749,3 +1749,35 @@ body.mod-reordering { cursor: grabbing; }
 /* @sk-has-icon:start —— 有插画时不再叠「纯色等级底板」，只保留属性框 + 插画 */
 .sk-icon-wrap.sk-has-icon .sk-lvl{display:none}
 /* @sk-has-icon:end */
+
+/* @coins-v1:start */
+.sk-ico-coin{width:26px;height:26px;background-size:contain;background-repeat:no-repeat;background-position:center}
+.sk-ico-coin.coin-ico{width:26px;height:26px;margin:0}
+.coin-ico{width:22px;height:22px;margin-right:6px;vertical-align:-5px}
+.sk-icon-wrap:not(.sk-has-icon) .sk-lvl{display:none}
+.sk-icon-wrap:not(.sk-has-icon) .sk-icon{background:#FFFFFF}
+/* @coins-v1:end */
+
+
+/* ================= v0.9.13 ================= */
+body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
+.desc-pop{position:fixed;z-index:3200;display:none;min-width:240px;max-width:266px;background:#1A1512;border:1px solid #C6A15B;border-radius:6px;box-shadow:0 10px 26px rgba(0,0,0,.55);overflow:hidden}
+.desc-pop.on{display:block}
+.desc-pop-h{font-size:11px;color:#A79780;padding:5px 8px;border-bottom:1px solid #2E2620;background:#171310}
+.desc-pop-list{max-height:210px;overflow:auto}
+.desc-pop-item{display:flex;flex-direction:column;gap:1px;width:100%;text-align:left;padding:6px 9px;background:none;border:0;border-bottom:1px solid #221C17;cursor:pointer}
+.desc-pop-item b{font-size:12.5px;color:#E8DCC6;font-weight:600}
+.desc-pop-item small{font-size:10.5px;color:#8E8071}
+.desc-pop-item.on,.desc-pop-item:hover{background:#2A211A}
+.desc-pop-empty{padding:10px;font-size:12px;color:#A79780}
+.mb-swrap{position:relative}
+.mb-res{position:absolute;z-index:200;left:0;right:0;top:calc(100% + 4px);display:none;max-height:280px;overflow:auto;background:#1A1512;border:1px solid #C6A15B;border-radius:6px;box-shadow:0 10px 26px rgba(0,0,0,.55)}
+.mb-res.on{display:block}
+.mb-res-item{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:6px 9px;background:none;border:0;border-bottom:1px solid #221C17;cursor:pointer}
+.mb-res-item b{font-size:12px;color:#E8DCC6;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mb-res-item small{font-size:10.5px;color:#8E8071;flex:0 0 auto}
+.mb-res-item:hover{background:#2A211A}
+.mb-res-empty{padding:10px;font-size:12px;color:#A79780}
+.bs-ro{border:1px dashed #6F5A33;border-radius:6px;padding:8px;background:rgba(0,0,0,.18)}
+.bs-ro-tag{display:inline-block;font-size:10.5px;letter-spacing:.4px;color:#C98A3C;border:1px solid #6F5A33;border-radius:999px;padding:1px 7px;margin-bottom:6px}
+.bs-ro-hint{font-size:11px;margin-top:4px}

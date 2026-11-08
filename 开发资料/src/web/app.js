@@ -1106,7 +1106,7 @@ function pTagChoices(kind) {
 }
 
 function pTagLabel(c) {
-  const name = c.zh ? String(c.zh) + (c.apx ? ' ≈' : '') : String(c.id) + ' · 官方无译名';
+  const name = c.zh ? String(c.zh) + (c.apx ? ' ≈' : '') : String(c.id);
   return c.n ? name + '（' + c.n + '）' : name;
 }
 
@@ -1139,7 +1139,7 @@ function pTagHitsHtml(kind) {
     .filter((c) => !used.has(String(c.id)))
     .filter((c) => !q || String(c.id).toLowerCase().includes(q) || String(c.zh || '').toLowerCase().includes(q));
   const hits = pool.slice(0, 12);
-  const btns = hits.map((c) => '<button type="button" class="p-taghit' + (c.dep ? ' dep' : '') + '" data-act="p-tag-add2" data-kind="' + kind + '" data-id="' + esc(c.id) + '" title="' + esc(c.id) + (c.dep ? ' · 原版已废弃' : '') + (c.apx ? ' · 近似官方项' : '') + (c.zh ? '' : ' · 官方无译名') + '">' + esc(pShort(pTagLabel(c), 16)) + '</button>').join('');
+  const btns = hits.map((c) => '<button type="button" class="p-taghit' + (c.dep ? ' dep' : '') + '" data-act="p-tag-add2" data-kind="' + kind + '" data-id="' + esc(c.id) + '" title="' + esc(c.id) + (c.dep ? ' · 原版已废弃' : '') + (c.apx ? ' · 近似官方项' : '') + '">' + esc(pShort(pTagLabel(c), 16)) + '</button>').join('');
   const more = pool.length > hits.length ? '<span class="muted">还有 ' + (pool.length - hits.length) + ' 个，继续输入可筛选</span>' : '';
   return btns + (pool.length ? more : (q ? '<span class="muted">没有匹配（只能选已注册词条）</span>' : ''));
 }
@@ -1659,6 +1659,13 @@ function openSettings() {
       <div class="grid-2" style="margin-top:10px">
         <label class="field check"><input type="checkbox" id="set-delguard-on" ${deleteGuard().enabled ? 'checked' : ''}><span>永久删除前显示冷静倒计时</span></label>
         <label class="field"><span>冷静时长（秒，0–60）</span><input type="text" inputmode="decimal" data-num="1" id="set-delguard-sec" value="${String(deleteGuard().seconds)}"></label>
+        <label class="field"><span>编辑器字体</span>
+          <select id="set-font-mode">
+            <option value="builtin" ${fontMode() === 'builtin' ? 'selected' : ''}>内置游戏字体（打包进编辑器）</option>
+            <option value="private" ${fontMode() === 'private' ? 'selected' : ''}>从私服读取游戏字体</option>
+            <option value="system" ${fontMode() === 'system' ? 'selected' : ''}>系统字体（不加载游戏字体）</option>
+          </select>
+        </label>
       </div>
       <div class="hint muted">当前 Lethe：${esc(st.letheRoot || '（未定位）')}<br>配置文件：${esc(st.configPath || '')}</div>`,
     footer: `<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="save-settings">保存设置</button>`,
@@ -2361,7 +2368,9 @@ const actions = {
     if (dgOn || dgSec) saveDeleteGuard({ enabled: dgOn ? dgOn.checked : true, seconds: dgSec ? dgSec.value : 5 });
     const editorName = $('#set-editor')?.value || '但丁';
     const theme = $('#set-theme')?.value || 'dark';
-    const res = await api('/api/config', { method: 'POST', body: { editorName, theme } });
+    const fm = $('#set-font-mode')?.value || fontMode();
+    applyFontMode(fm);
+    const res = await api('/api/config', { method: 'POST', body: { editorName, theme, fontMode: fm } });
     S.status = { ...S.status, editorName, theme };
     document.documentElement.dataset.theme = theme;
     closeModal();
@@ -2705,7 +2714,7 @@ document.addEventListener('compositionend', (e) => {
 document.addEventListener('input', (e) => {
   if (imeComposing || e.isComposing) return;
   const t = e.target;
-  if (t && (t.id === 'skill-desc' || t.id === 'p-desc' || t.id === 'buff-desc' || (t.classList && t.classList.contains('coin-desc')))) S.lastDescEl = t;
+  if (t && (t.id === 'skill-desc' || t.id === 'p-desc' || t.id === 'buff-desc' || (t.classList && t.classList.contains('coin-desc')))) { S.lastDescEl = t; descPopFromInput(t); }
 
   /* ---- 镜牢编辑：输入即写回草稿（不重绘，避免打断输入） ---- */
   if (t.id === 'pk-q') {
@@ -2833,7 +2842,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'passive-search') { S.passiveSearch = t.value; render(); refocus('passive-search', t.value.length); return; }
   if (t.id === 'buff-search') { S.buffSearch = t.value; render(); refocus('buff-search', t.value.length); return; }
   if (t.id === 'module-search2') { S.moduleSearch2 = t.value; render(); refocus('module-search2', t.value.length); return; }
-  if (t.id === 'mb-search') { S.mb.search = t.value; render(); refocus('mb-search', t.value.length); return; }
+  if (t.id === 'mb-search') { mbResShow(t.value); return; }
   if (t.dataset && t.dataset.pinfo) { schedulePInfo(); return; }
   if (t.dataset && t.dataset.binfo) { scheduleBInfo(); return; }
   if (t.dataset && t.dataset.info) { scheduleInfo(); }
@@ -3113,6 +3122,7 @@ function pNormalizeSkill(sk) {
     });
     out.infoSource = 'file';
     out.coinValues = Array.isArray(fi.coinValues) ? fi.coinValues : (out.coinValues || []);
+  out.coinColors = Array.isArray(fi.coinColors) ? fi.coinColors : (out.coinColors || []);
     out.skillTier = Number(fi.skillTier) || Number(out.skillTier) || 1;
   }
   const total = Number(out.coinTotal || 0);
@@ -3225,7 +3235,9 @@ function renderSkillPreview(sk) {
   const atk = Number(info.atkCorrection) || 0;
   const cap = Math.max(0, Number(info.targetNum) || 0);
   const icon = sk.iconDataUrl ? ("background-image:url('" + sk.iconDataUrl + "')") : "";
-  const coinIcons = Array.from({ length: n }, () => "<i class=\"sk-ico-coin sk-coin\"></i>").join("");
+  const fi = sk.fileInfo || {};
+  const coinCols = Array.isArray(fi.coinColors) ? fi.coinColors : [];
+  const coinIcons = Array.from({ length: n }, (_, i) => "<i class=\"sk-ico-coin coin-ico sk-coin c-" + coinClassOf(coinCols[i]) + "\"></i>").join("");
   return "<div class=\"skill-prev-card\">"
     + "<div class=\"sk-prev\">"
     + "<div class=\"sk-icon-col\">"
@@ -3393,7 +3405,7 @@ function renderSkillCode(code) {
     + (chipHtml(code.skill, 'skill', -1) || '<span class="dz-hint">把模块拖到这里：作用于技能本身</span>') + '</div>'
     + renderSkillGroups(S.skill || code)
     ;
-  const coins = (code.coins || []).map((c, i) => '<div class="coin-card"><div class="coin-head"><strong>硬币 ' + (i + 1) + '</strong>'
+  const coins = (code.coins || []).map((c, i) => '<div class="coin-card"><div class="coin-head"><i class="coin-ico c-' + coinClassOf(c.color) + '" title="硬币颜色"></i><strong>硬币 ' + (i + 1) + '</strong>'
     + '<select data-coin="' + i + '" data-key="color">'
     + colors.map((x) => '<option value="' + esc(x.id) + '"' + (String(c.color) === String(x.id) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('')
     + '</select><label class="inline-field">变动值 <input type="text" inputmode="decimal" data-num="1" data-coin="' + i + '" data-key="value" value="' + esc(c.value ?? 0) + '"></label></div>'
@@ -3431,6 +3443,12 @@ function coinDescOf(sk, i) {
   const arr = (sk && Array.isArray(sk.coinDescs)) ? sk.coinDescs : [];
   return typeof arr[i] === 'string' ? arr[i] : '';
 }
+function coinClassOf(v) {
+  const k = String(v || 'GREY').toUpperCase();
+  if (k === 'RED' || k === 'GREEN' || k === 'PURPLE' || k === 'GREY') return k;
+  if (k === 'GOLD' || k === 'NORMAL' || k === '') return 'GREY';
+  return 'GREY';
+}
 function coinDescCount(sk) {
   const n = (sk && sk.code && Array.isArray(sk.code.coins)) ? sk.code.coins.length : 0;
   const d = (sk && Array.isArray(sk.coinDescs)) ? sk.coinDescs.length : 0;
@@ -3445,7 +3463,7 @@ function descStateOf(kind, i) {
 function descCheckHtml(st) {
   const unk = st.unknown || [];
   const okCount = (st.tokens || []).filter((t) => t.kind !== 'unknown').length;
-  const sugg = (st.suggestions || []).filter((x) => x && x.best);
+  const sugg = (st.suggestions || []).filter((x) => x && x.best).slice(0, 1);
   const suggHtml = sugg.length
     ? '<div class="desc-sugg-list">你可能想输入：' + sugg.map((x) => '<button class="sugg" data-act="desc-sugg" data-tok="' + esc(x.tok) + '" data-best="' + esc(x.best) + '" title="点击替换">[' + esc(x.tok) + '] → [' + esc(x.best) + ']</button>').join('') + '</div>'
     : '';
@@ -3635,7 +3653,7 @@ function updateSkillDom() {
     const coins = (S.skill.code && S.skill.code.coins) || [];
     const nCoin = Math.max(0, Number(info.coinCount) || coins.length || 0);
     const box = pv.querySelector(".sk-coins");
-    if (box) box.innerHTML = Array.from({ length: nCoin }, () => "<i class=\"sk-ico-coin sk-coin\"></i>").join("");
+    if (box) { const cc = Array.isArray(info.coinColors) ? info.coinColors : []; box.innerHTML = Array.from({ length: nCoin }, (_, i) => "<i class=\"sk-ico-coin coin-ico sk-coin c-" + coinClassOf(cc[i]) + "\"></i>").join(""); }
     const base = pv.querySelector(".sk-base");
     if (base) base.textContent = String(Number(info.basePower) || 0);
     const first = coins[0] || {};
@@ -4631,7 +4649,7 @@ function mbPaletteHtml() {
   return '<div class="mb-pal-body">'
     + '<nav class="mb-cats" aria-label="积木分类">' + tabs + '</nav>'
     + '<div class="mb-pal-main"><div class="mb-legend">金色=必填参数；灰色虚线=可选（可留空，游戏按默认处理）</div>'
-    + '<div class="mb-pal-head"><input id="mb-search" class="search" placeholder="搜索函数 / 时点" value="' + esc(S.mb.search) + '"></div>' + carry
+    + '<div class="mb-pal-head"><div class="mb-swrap"><input id="mb-search" class="search" placeholder="搜索函数 / 时点" value="' + esc(S.mb.search) + '"><div id="mb-res" class="mb-res"></div></div></div>' + carry
     + '<div class="mb-items" id="mb-items">' + (items.join('') || '<div class="mb-empty2">没有匹配项</div>') + '</div>'
     + '</div></div>';
 }
@@ -6397,7 +6415,9 @@ function renderBuffScriptsEditor(b) {
       + '<span class="pr-tag ' + k.cls + '">' + esc(k.zh) + '</span>'
       + (String(raw || '').length ? '<span class="pr-tag">' + String(raw || '').length + ' 字符</span>' : '')
       + '<button class="btn ghost sm" data-act="buff-script-del" data-i="' + i + '">删除</button></div>'
-      + '<textarea class="desc-input bs-text" data-buff-script="' + i + '" spellcheck="false" rows="' + Math.max(2, Math.min(10, lines + 1)) + '" placeholder="留空表示删除这条脚本">' + esc(String(raw || '')) + '</textarea>'
+      + (k.cls === 'pr-mod'
+        ? '<textarea class="desc-input bs-text" data-buff-script="' + i + '" spellcheck="false" rows="' + Math.max(2, Math.min(10, lines + 1)) + '" placeholder="留空表示删除这条脚本">' + esc(String(raw || '')) + '</textarea>'
+        : '<div class="bs-ro"><div class="bs-ro-tag">原版特殊控件 · 待识别</div><div class="pr-code">' + esc(String(raw || '')) + '</div><div class="muted bs-ro-hint">这类游戏内置脚本（含方括号参数）不能在积木里改；需要手改请用「查看源代码」。</div></div>')
       + bsExtraBlock(b, i)
       + '</div>';
   }).join('');
@@ -7300,3 +7320,197 @@ bindModDrag();
 document.addEventListener('click', function (e) {
   if (modDragEndAt && Date.now() - modDragEndAt < 320) { e.stopPropagation(); e.preventDefault(); }
 }, true);
+
+
+/* ================= v0.9.13：描述 [ 候选浮层 ================= */
+let descPopEl = null;
+let descPopItems = [];
+let descPopIdx = -1;
+let descPopTimer = null;
+let descPopCtx = null;
+
+function descPopEnsure() {
+  if (descPopEl && document.body.contains(descPopEl)) return descPopEl;
+  descPopEl = document.createElement('div');
+  descPopEl.className = 'desc-pop';
+  descPopEl.innerHTML = '<div class="desc-pop-h">候选词条 · ↑↓ 选择 · Enter 填入 · Esc 关闭</div><div class="desc-pop-list"></div>';
+  document.body.appendChild(descPopEl);
+  descPopEl.querySelector('.desc-pop-list').addEventListener('mousedown', (e) => {
+    const b = e.target.closest('[data-dpop]');
+    if (!b) return;
+    e.preventDefault();
+    descPopPick(Number(b.dataset.dpop));
+  });
+  return descPopEl;
+}
+
+function descPopHide() {
+  descPopIdx = -1;
+  descPopItems = [];
+  if (descPopEl) { descPopEl.classList.remove('on'); }
+}
+
+function descCaretToken(ta) {
+  const pos = ta.selectionStart;
+  const text = ta.value.slice(0, pos);
+  const open = text.lastIndexOf('[');
+  if (open < 0) return null;
+  const close = text.lastIndexOf(']');
+  if (close > open) return null;
+  const q = text.slice(open + 1);
+  if (/[\r\n]/.test(q)) return null;
+  return { q, start: open };
+}
+
+function descPopRender(items) {
+  const el = descPopEnsure();
+  const list = el.querySelector('.desc-pop-list');
+  descPopItems = items;
+  descPopIdx = items.length ? 0 : -1;
+  list.innerHTML = items.length
+    ? items.map((c, i) => '<button type="button" class="desc-pop-item' + (i === 0 ? ' on' : '') + '" data-dpop="' + i + '">'
+      + '<b>' + esc(c.zh || c.name || c.id) + '</b><small>' + esc(c.kind === 'timing' ? '时点' : c.kind === 'buff' ? 'Buff' : c.kind === 'tag' ? '技能标签' : '关键词') + ' · ' + esc(c.id) + '</small></button>').join('')
+    : '<div class="desc-pop-empty">没有匹配词条</div>';
+  el.classList.add('on');
+  const ta = descPopCtx && descPopCtx.ta;
+  if (ta) {
+    const r = ta.getBoundingClientRect();
+    el.style.left = Math.max(8, Math.min(window.innerWidth - 268, r.left)) + 'px';
+    el.style.top = Math.min(window.innerHeight - 40, r.bottom + 4) + 'px';
+  }
+}
+
+function descPopFromInput(ta) {
+  const tk = descCaretToken(ta);
+  if (!tk || !tk.q || tk.q.length < 1) { descPopHide(); return; }
+  descPopCtx = { ta, start: tk.start, q: tk.q };
+  clearTimeout(descPopTimer);
+  descPopTimer = setTimeout(async () => {
+    try {
+      const res = await api('/api/keywords/suggest?q=' + encodeURIComponent(tk.q) + '&limit=5');
+      if (!descPopCtx || descPopCtx.q !== tk.q) return;
+      descPopRender((res.list || []).slice(0, 5));
+    } catch (e) { descPopHide(); }
+  }, 140);
+}
+
+function descPopPick(i) {
+  const c = descPopItems[i];
+  if (!c || !descPopCtx) return;
+  const ta = descPopCtx.ta;
+  const name = c.zh || c.name || c.id;
+  const caret = ta.selectionStart;
+  const before = ta.value.slice(0, descPopCtx.start + 1);
+  const after = ta.value.slice(caret);
+  ta.value = before + name + ']' + after;
+  const pos = before.length + name.length + 1;
+  ta.focus();
+  ta.setSelectionRange(pos, pos);
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+  descPopHide();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!descPopEl || !descPopEl.classList.contains('on') || !descPopItems.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    descPopIdx = (descPopIdx + (e.key === 'ArrowDown' ? 1 : -1) + descPopItems.length) % descPopItems.length;
+    const list = descPopEl.querySelector('.desc-pop-list');
+    list.querySelectorAll('.desc-pop-item').forEach((b, i) => b.classList.toggle('on', i === descPopIdx));
+    return;
+  }
+  if (e.key === 'Enter') { e.preventDefault(); descPopPick(descPopIdx); return; }
+  if (e.key === 'Escape') { e.preventDefault(); descPopHide(); return; }
+}, true);
+document.addEventListener('mousedown', (e) => {
+  if (!descPopEl || !descPopEl.classList.contains('on')) return;
+  if (e.target.closest('.desc-pop')) return;
+  if (descPopCtx && e.target === descPopCtx.ta) return;
+  descPopHide();
+}, true);
+window.addEventListener('scroll', () => descPopHide(), true);
+
+/* ================= 模块编辑：搜索浮层 ================= */
+function mbResPool() {
+  const out = [];
+  const timings = (S.keywords && S.keywords.timings) || [];
+  for (const t of timings) {
+    if (!scopeAllowsTiming(t.en)) continue;
+    out.push({ kind: 'timing', val: t.en, label: t.zh ? t.zh + ' · ' + t.en : t.en, sub: '时点' });
+  }
+  const rows = (kind, list, sub) => {
+    for (const r of list || []) {
+      if (kind !== 'loop' && !scopeAllowsCommand(r.name)) continue;
+      out.push({ kind, val: r.name, label: (r.zh || r.name) + (r.summary ? ' — ' + r.summary : ''), sub });
+    }
+  };
+  rows('cons', mbRows('consequence'), '效果');
+  rows('acq', mbRows('acquirer'), '获取');
+  return out;
+}
+
+function mbResShow(q) {
+  S.mb.search = q;
+  const box = document.getElementById('mb-res');
+  if (!box) return;
+  const query = String(q || '').trim().toLowerCase();
+  if (!query) { box.classList.remove('on'); box.innerHTML = ''; return; }
+  const hits = mbResPool().filter((x) => (x.label + ' ' + x.val).toLowerCase().includes(query)).slice(0, 30);
+  box.innerHTML = hits.length
+    ? hits.map((x, i) => '<button type="button" class="mb-res-item" data-mbres="' + i + '"><b>' + esc(x.label) + '</b><small>' + esc(x.sub) + '</small></button>').join('')
+    : '<div class="mb-res-empty">没有匹配项</div>';
+  box.dataset.hits = JSON.stringify(hits);
+  box.classList.add('on');
+}
+
+function mbResPick(i) {
+  const box = document.getElementById('mb-res');
+  if (!box) return;
+  let hits = [];
+  try { hits = JSON.parse(box.dataset.hits || '[]'); } catch (e) { hits = []; }
+  const hit = hits[i];
+  if (!hit) return;
+  S.mb.drag = { kind: hit.kind, val: hit.val };
+  S.mb.carry = { kind: hit.kind, val: hit.val };
+  box.classList.remove('on');
+  toast('已选中「' + hit.label + '」，点画布或插槽放入', 'ok');
+}
+
+document.addEventListener('mousedown', (e) => {
+  const b = e.target.closest('[data-mbres]');
+  if (!b) return;
+  e.preventDefault();
+  mbResPick(Number(b.dataset.mbres));
+}, true);
+document.addEventListener('keydown', (e) => {
+  const box = document.getElementById('mb-res');
+  if (!box || !box.classList.contains('on')) return;
+  if (e.key === 'Escape') { box.classList.remove('on'); return; }
+  if (e.key === 'Enter') {
+    const first = box.querySelector('[data-mbres]');
+    if (first) { e.preventDefault(); mbResPick(Number(first.dataset.mbres)); }
+  }
+}, true);
+document.addEventListener('mousedown', (e) => {
+  const box = document.getElementById('mb-res');
+  if (!box || !box.classList.contains('on')) return;
+  if (e.target.closest('.mb-swrap') || e.target.closest('#mb-res')) return;
+  box.classList.remove('on');
+}, true);
+
+/* ================= 编辑器字体三选一 ================= */
+const FONT_STACKS = {
+  builtin: '"LCWGame","Microsoft YaHei UI","Segoe UI",sans-serif',
+  private: '"LCWGame","Microsoft YaHei UI","Segoe UI",sans-serif',
+  system: '"Segoe UI","Microsoft YaHei UI",sans-serif',
+};
+function fontMode() {
+  return localStorage.getItem('lcw.fontMode') || 'builtin';
+}
+function applyFontMode(mode) {
+  const m = FONT_STACKS[mode] ? mode : 'builtin';
+  localStorage.setItem('lcw.fontMode', m);
+  document.documentElement.style.setProperty('--ui-font', FONT_STACKS[m]);
+  document.body.style.fontFamily = FONT_STACKS[m];
+}
+applyFontMode(fontMode());
