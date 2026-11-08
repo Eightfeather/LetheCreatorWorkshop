@@ -1734,10 +1734,11 @@ body.mod-reordering { cursor: grabbing; }
 
 /* @skill-prev-hug:start */
 .sk-prev{gap:6px;padding:8px 10px 8px 8px;align-items:flex-start}
-.sk-icon-col{gap:0;align-items:flex-start}
-.sk-icon-row{display:flex;align-items:center;gap:2px}
-.sk-coinval{margin:0 0 2px 0;padding:0;line-height:1;text-align:center;min-width:96px}
-.sk-base{margin:0;padding:0;text-align:right;min-width:0}
+/* 图标列：第 1 行放变动值（只占图标这一列），第 2 行放「威力 + 图标」 */
+.sk-icon-col{position:relative;display:grid;grid-template-columns:auto 96px;grid-template-rows:auto auto;column-gap:2px;row-gap:2px;align-items:center;justify-items:center}
+.sk-coinval{grid-column:2;grid-row:1;width:96px;margin:0;padding:0;line-height:1.05;text-align:center;font-size:15px;font-weight:700;letter-spacing:.5px}
+.sk-base{grid-column:1;grid-row:2;margin:0;padding:0;text-align:right;min-width:0;align-self:center;justify-self:end}
+.sk-icon-wrap{grid-column:2;grid-row:2}
 .sk-lvl,.sk-sin{inset:0}
 .sk-icon{left:22%;top:22%;width:56%;height:56%}
 /* @skill-prev-hug:end */
