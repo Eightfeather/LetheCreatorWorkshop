@@ -6,8 +6,10 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-// 构建依赖目录：向上找同级/上级里的 「数据缓存\sea-build」，避免项目被挪动后失效
+// 构建依赖目录：优先用本目录的 node_modules（npm install / npm ci 即可复现），
+// 其次向上找历史遗留的「数据缓存\sea-build」，避免项目被挪动后失效。
 function findCache(start) {
+  if (existsSync(join(start, 'node_modules', 'esbuild'))) return start;
   let dir = start;
   for (let i = 0; i < 4; i += 1) {
     const p = resolve(dir, '数据缓存', 'sea-build');
@@ -22,7 +24,13 @@ const DIST = join(ROOT, 'dist', 'server');
 const NODE_EXE = process.env.LETHE_WB_NODE || process.execPath;
 const FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 
-if (!existsSync(join(CACHE, 'node_modules', 'esbuild'))) throw new Error(`缺少构建依赖：${CACHE}`);
+if (!existsSync(join(CACHE, 'node_modules', 'esbuild'))) {
+  throw new Error(
+    '缺少构建依赖 esbuild/postject。\n' +
+    '请在 开发资料 目录执行：npm install（或 npm ci 还原 package-lock.json）\n' +
+    '当前查找位置：' + CACHE
+  );
+}
 
 function walk(dir, base = dir) {
   const out = [];

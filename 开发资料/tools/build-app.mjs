@@ -17,7 +17,12 @@ const PKG = join(process.env.USERPROFILE, '.nuget', 'packages', 'microsoft.web.w
 const DOTNET = process.env.DOTNET_EXE || 'C:\\Program Files\\dotnet\\dotnet.exe';
 
 if (!existsSync(SERVER_EXE)) throw new Error('先跑 tools/build-server.mjs');
-if (!existsSync(PKG)) throw new Error('缺少 WebView2 包：' + PKG);
+if (!existsSync(PKG)) {
+  throw new Error(
+    '缺少 WebView2 NuGet 包：' + PKG + '\n' +
+    '请执行：dotnet restore host/TheLetheWorkbench.csproj（需要联网）'
+  );
+}
 
 mkdirSync(PAYLOAD, { recursive: true });
 rmSync(PAYLOAD, { recursive: true, force: true });
@@ -73,7 +78,13 @@ function makeIcon() {
 
 function buildHost() {
   rmSync(OUT, { recursive: true, force: true });
-  execFileSync(DOTNET, ['build', join(HOST, 'TheLetheWorkbench.csproj'), '-c', 'Release', '-o', OUT, '-v', 'minimal', '-nologo'], { stdio: 'inherit' });
+  // 先 restore：接手人机器 NuGet 缓存为空时，直接 build 会报 NETSDK1064
+try {
+  execFileSync(DOTNET, ['restore', join(HOST, 'TheLetheWorkbench.csproj'), '-v', 'minimal'], { stdio: 'inherit' });
+} catch (e) {
+  console.log('[build-app] dotnet restore 失败，继续尝试 build：' + e.message);
+}
+execFileSync(DOTNET, ['build', join(HOST, 'TheLetheWorkbench.csproj'), '-c', 'Release', '-o', OUT, '-v', 'minimal', '-nologo'], { stdio: 'inherit' });
   return join(OUT, 'TheLetheWorkbench.exe');
 }
 

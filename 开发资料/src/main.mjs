@@ -8,10 +8,13 @@ import { listPersonalities } from './lethe/personality.mjs';
 import { startServer, VERSION } from './server/index.mjs';
 
 function arg(name, dflt = '') {
-  const hit = process.argv.find((a) => a === `--${name}` || a.startsWith(`--${name}=`));
-  if (!hit) return dflt;
+  const argv = process.argv.slice(2);
+  const i = argv.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+  if (i < 0) return dflt;
+  const hit = argv[i];
   if (hit.includes('=')) return hit.slice(hit.indexOf('=') + 1);
-  return dflt;
+  const next = argv[i + 1];
+  return next && !next.startsWith('--') ? next : dflt;
 }
 const has = (name) => process.argv.includes(`--${name}`);
 const json = has('json');

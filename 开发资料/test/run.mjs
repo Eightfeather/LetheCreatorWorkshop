@@ -67,7 +67,7 @@ session.redo('测试Mod', 'personality:10101');
 ok(readJson(join(mod, 'custom_limbus_data/personality/1.json')).list[0].rank === 3, '重做恢复新内容');
 session.clear('测试Mod', 'personality:10101');
 ok(session.state('测试Mod').dirty === false, 'clear 后回到已保存');
-ok(fs.existsSync(join(lethe, '.lethe-workbench', 'journal', '测试Mod', 'ops.jsonl')), '操作流水已落盘');
+ok(fs.existsSync(join(lethe, 'LCW', 'journal', '测试Mod', 'ops.jsonl')), '操作流水已落盘');
 
 console.log('\n[snapshot]');
 const slot = join(autoBackupsDir(lethe), '测试Mod');

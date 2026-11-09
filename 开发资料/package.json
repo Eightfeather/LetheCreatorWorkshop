@@ -1,6 +1,6 @@
 {
   "name": "the-lethe-workbench",
-  "version": "0.9.19",
+  "version": "0.9.20",
   "private": true,
   "type": "module",
   "description": "The Lethe Workbench 边狱工作台 · Limbus Company / Lethe 模组编辑器",
@@ -18,5 +18,8 @@
     "smoke": "node test/smoke.mjs"
   },
   "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "postject": "1.0.0-alpha.6"
+  }
 }
