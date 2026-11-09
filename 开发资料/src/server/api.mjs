@@ -24,7 +24,7 @@ import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffI
 import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestCandidates, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
 import { TIMING_ARGS } from '../knowledge/timing-args.mjs';
 import { canonicalCode, parseScripts } from '../lethe/program-parse.mjs';
-import { writeScriptSlot, scriptSlotList } from '../lethe/scriptslot.mjs';
+import { writeScriptSlot, writeSlotTexts, scriptSlotList } from '../lethe/scriptslot.mjs';
 import { applyMd, applyMdAll, deleteMd, fromGameEntity, getMd, listMd, mdSchemas, nextMdId, removeLanded, saveMd } from '../lethe/mdtables.mjs';
 import { pickKinds, pickRecord, pickSearch } from '../lethe/picker.mjs';
 /* MD_IMPORTED_v0_9_0 */
@@ -128,6 +128,33 @@ function skillScriptGroups(letheRoot, entity) {
 
 
 /** v0.9.18：某实体里「不是编辑器模块」的脚本（未匹配到模块库的原始脚本） */
+function scriptSlots(letheRoot, mod, kind, id) {
+  let slots = [];
+  try { slots = scriptSlotList(letheRoot, { name: mod, kind, id }); } catch (e) { return []; }
+  let byCode = new Map();
+  try { byCode = moduleCodeIndex(letheRoot); } catch (e) { byCode = new Map(); }
+  const out = [];
+  for (const s of slots) {
+    const text = String(s.text || '').trim();
+    if (!text) continue;
+    const modular = isModularScript(text);
+    let kindOf = 'builtin';
+    let moduleId = null;
+    let parseable = false;
+    if (modular) {
+      let key = '';
+      try { key = canonicalCode(text); } catch (e) { key = ''; }
+      if (key && byCode.has(key)) { kindOf = 'module'; moduleId = byCode.get(key); }
+      else {
+        kindOf = 'unrec';
+        try { const p = parseScripts([text]); parseable = Boolean(p && p.rows && p.rows.length); } catch (e) { parseable = false; }
+      }
+    }
+    out.push({ where: s.where, coin: s.coin, index: s.index, text, modular, kind: kindOf, moduleId, parseable });
+  }
+  return out;
+}
+
 function unrecSlots(letheRoot, mod, kind, id) {
   let slots = [];
   try { slots = scriptSlotList(letheRoot, { name: mod, kind, id }); } catch (e) { return []; }
@@ -876,6 +903,7 @@ export function buildApi(ctx) {
           coinTotal: ((((one.entity || {}).skillData) || [])[0] || {}).coinList ? ((((one.entity || {}).skillData) || [])[0].coinList || []).length : 0,
           scriptGroups: skillScriptGroups(letheRoot, one.entity),
           unrec: unrecSlots(letheRoot, q.get('name'), 'skill', one.id),
+          slots: scriptSlots(letheRoot, q.get('name'), 'skill', one.id),
         },
       };
     },
@@ -1087,6 +1115,7 @@ export function buildApi(ctx) {
           parsed,
           matchedModules,
       unrec: unrecSlots(letheRoot, q.get('name'), 'passive', one.id),
+      slots: scriptSlots(letheRoot, q.get('name'), 'passive', one.id),
           rel: one.rel,
           name: (one.locale && one.locale.name) || '',
           localeName: (one.locale && one.locale.name) || '',
@@ -1275,6 +1304,7 @@ export function buildApi(ctx) {
           parsed,
           matchedModules,
       unrec: unrecSlots(letheRoot, q.get('name'), 'buff', one.id),
+      slots: scriptSlots(letheRoot, q.get('name'), 'buff', one.id),
           description: descText,
           descriptionSource: descSource,
         },
@@ -1436,6 +1466,18 @@ export function buildApi(ctx) {
     },
 
     /* ---------- v0.9.18：单条脚本槽（未识别模块） ---------- */
+    'POST /api/script/slots': (body) => {
+      const { letheRoot } = need();
+      const r = writeSlotTexts(letheRoot, {
+        name: body && body.name,
+        kind: body && body.kind,
+        id: body && body.id,
+        where: (body && body.where) || 'main',
+        coin: body && body.coin,
+        texts: (body && body.texts) || [],
+      });
+      return { ok: true, ...r };
+    },
     'POST /api/script/slot': (body) => {
       const { letheRoot } = need();
       const res = writeScriptSlot(letheRoot, {

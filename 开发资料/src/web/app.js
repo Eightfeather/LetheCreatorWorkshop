@@ -3356,6 +3356,78 @@ function renderSkillMain() {
     + '</div></div></section>';
 }
 
+function slotStackHtml(kind, zone, coin) {
+  const doc = kind === 'skill' ? S.skill : (kind === 'passive' ? S.passive : S.buff);
+  const slots = (doc && doc.slots) || [];
+  const mine = slots.filter((s) => (zone === 'coin'
+    ? (s.where === 'coin' && Number(s.coin) === Number(coin))
+    : (zone === 'skill' ? s.where === 'skill' : s.where === 'main')));
+  if (!mine.length) return '<div class="slot-empty">把右侧模块拖到这里</div>';
+  return mine.map((s) => {
+    const txt = String(s.text || '');
+    const idx = Number(s.index) || 0;
+    const xBtn = '<button class="sb-x" data-act="unlink-slot" data-kind="' + kind + '" data-zone="' + esc(zone) + '" data-coin="' + coin + '" data-index="' + idx + '" title="移除（只改这一处）">×</button>';
+    if (s.kind === 'module') {
+      const nm = moduleName(s.moduleId) || s.moduleId || '模块';
+      return '<div class="slot-bk" title="' + esc(txt) + '"><b class="sb-name">' + esc(nm) + '</b><span class="sb-tag">模块</span>' + xBtn
+        + '<pre class="sb-code">' + esc(txt) + '</pre></div>';
+    }
+    if (s.kind === 'unrec') {
+      const edit = s.parseable
+        ? '<button class="sb-edit" data-act="edit-unrec" data-zone="' + esc(zone) + '" data-coin="' + esc(s.coin) + '" data-index="' + idx + '" title="用积木临时编辑（保存只影响这一处）">🖊</button>'
+        : '';
+      return '<div class="slot-bk sb-unrec' + (s.parseable ? ' ok' : '') + '" title="' + esc(txt) + '"><b class="sb-name">' + (s.parseable ? '未识别模块 · 可解析' : '未识别模块') + '</b>' + edit + xBtn
+        + '<pre class="sb-code">' + esc(txt) + '</pre></div>';
+    }
+    return '<div class="slot-bk sb-ro" title="' + esc(txt) + '"><b class="sb-name">游戏内置脚本</b><span class="sb-tag">只读</span><pre class="sb-code">' + esc(txt) + '</pre></div>';
+  }).join('');
+}
+
+function slotsOfZone(kind, zone, coin) {
+  const doc = kind === 'skill' ? S.skill : (kind === 'passive' ? S.passive : S.buff);
+  const slots = (doc && doc.slots) || [];
+  return slots.filter((s) => (zone === 'coin'
+    ? (s.where === 'coin' && Number(s.coin) === Number(coin))
+    : (zone === 'skill' ? s.where === 'skill' : s.where === 'main')));
+}
+
+async function saveSlots(kind, zone, coin) {
+  const doc = kind === 'skill' ? S.skill : (kind === 'passive' ? S.passive : S.buff);
+  if (!doc) return;
+  const where = zone === 'coin' ? 'coin' : (zone === 'skill' ? 'skill' : 'main');
+  const texts = slotsOfZone(kind, zone, coin).map((s) => String(s.text || ''));
+  await api('/api/script/slots', { method: 'POST', body: { name: S.selected, kind, id: doc.id, where, coin: Number(coin) || -1, texts } });
+  if (kind === 'skill') await reloadSkill();
+  else if (kind === 'passive') await reloadPassive();
+  else await reloadBuff();
+}
+
+async function addSlotFromModule(kind, zone, coin, mid) {
+  const doc = kind === 'skill' ? S.skill : (kind === 'passive' ? S.passive : S.buff);
+  if (!doc) { toast('请先选择一个条目', 'warn'); return; }
+  const m = (S.modules || []).find((x) => x.id === mid);
+  const code = String((m && m.code) || '').trim();
+  if (!code) { toast('这个模块还没有代码，先到「模块编辑」里搭积木', 'warn'); return; }
+  if (slotsOfZone(kind, zone, coin).some((s) => String(s.text || '') === code)) { toast('这个模块已经在这里了', 'warn'); return; }
+  doc.slots = doc.slots || [];
+  doc.slots.push({ where: zone === 'coin' ? 'coin' : (zone === 'skill' ? 'skill' : 'main'), coin: zone === 'coin' ? Number(coin) : -1, index: 999, text: code, modular: true, kind: 'module', moduleId: mid });
+  toast('已置入：' + (moduleName(mid) || mid), 'ok');
+  await saveSlots(kind, zone, coin);
+}
+
+async function removeSlot(kind, zone, coin, index) {
+  const doc = kind === 'skill' ? S.skill : (kind === 'passive' ? S.passive : S.buff);
+  if (!doc) return;
+  const list = slotsOfZone(kind, zone, coin);
+  const at = list.findIndex((s) => Number(s.index) === Number(index));
+  if (at < 0) return;
+  const target = list[at];
+  const all = doc.slots || [];
+  const pos = all.indexOf(target);
+  if (pos >= 0) all.splice(pos, 1);
+  await saveSlots(kind, zone, coin);
+}
+
 function chipHtml(arr, zone, idx) {
   return (arr || []).map((mid) => '<span class="chip">' + esc(moduleName(mid))
     + '<button class="chip-x" data-act="remove-placed" data-zone="' + zone + '" data-index="' + idx + '" data-mid="' + esc(mid) + '">×</button></span>').join('');
@@ -3415,23 +3487,19 @@ function renderSkillGroups(doc) {
 
 function renderSkillCode(code) {
   const colors = S.keywords?.coinColors || [{ id: 'GREY', zh: '灰' }];
-  const unrec = ((S.skill && S.skill.unrec) || []);
-  const skillUnrec = unrecHtml(unrec, 'skill', -1);
-  const skillZone = '<div class="drop-zone skill-zone" data-drop="skill">'
-    + (chipHtml(code.skill, 'skill', -1) || (skillUnrec ? '' : '<span class="dz-hint">把模块拖到这里：作用于技能本身</span>')) + skillUnrec + '</div>'
-    + renderSkillGroups(S.skill || code)
-    ;
+  const skillZone = '<div class="drop-zone slot-stack" data-drop="skill" data-coin="-1">' + slotStackHtml('skill', 'skill', -1) + '</div>';
   const coins = (code.coins || []).map((c, i) => '<div class="coin-card"><div class="coin-head"><i class="coin-ico c-' + coinClassOf(c.color) + '" title="硬币颜色"></i><strong>硬币 ' + (i + 1) + '</strong>'
     + '<select data-coin="' + i + '" data-key="color">'
     + colors.map((x) => '<option value="' + esc(x.id) + '"' + (String(c.color) === String(x.id) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('')
     + '</select><label class="inline-field">变动值 <input type="text" inputmode="decimal" data-num="1" data-coin="' + i + '" data-key="value" value="' + esc(c.value ?? 0) + '"></label></div>'
-    + '<div class="drop-zone coin-zone" data-drop="coin" data-index="' + i + '">'
-    + (chipHtml(c.modules, 'coin', i) || (unrecHtml(unrec, 'coin', i) ? '' : '<span class="dz-hint">拖入模块：作用于这枚硬币</span>')) + unrecHtml(unrec, 'coin', i) + '</div></div>').join('');
+    + '<div class="drop-zone slot-stack" data-drop="coin" data-index="' + i + '" data-coin="' + i + '">' + slotStackHtml('skill', 'coin', i) + '</div></div>').join('');
+
   return '<div class="code-wrap"><div class="code-col"><div class="col-title">技能置入区</div>' + skillZone + '</div>'
     + '<div class="coin-col"><div class="col-title">硬币置入区 <span class="muted">（数量由「硬币数量」决定）</span></div>'
     + (coins || '<div class="list-empty">硬币数量至少为 1</div>') + '</div></div>'
-    + '<div class="hint muted">从右侧模块列表拖入。硬币颜色与变动值目前是占位数据，编辑器↔游戏映射留待后续版本。</div>';
+    + '<div class="hint muted">从右侧模块列表拖入；未识别模块会原样保留，🖊 可临时用积木编辑（只改这一处）。</div>';
 }
+
 
 function highlightText(text, tokens) {
   if (!tokens || !tokens.length) return esc(text);
@@ -3686,24 +3754,13 @@ function updateSkillDom() {
 }
 
 function placeModule(mid, zone, index) {
-  if (zone === 'passive') return placeModuleSimple(mid, 'passive');
-  if (zone === 'buff') return placeModuleSimple(mid, 'buff');
+  if (zone === 'passive') return addSlotFromModule('passive', 'main', -1, mid);
+  if (zone === 'buff') return addSlotFromModule('buff', 'main', -1, mid);
   if (!S.skill) { toast('请先选择一个技能', 'warn'); return; }
-  const code = S.skill.code || (S.skill.code = { skill: [], coins: [] });
-  if (zone === 'skill') {
-    code.skill = code.skill || [];
-    if (code.skill.includes(mid)) { toast('这个模块已经在技能区了', 'warn'); return; }
-    code.skill.push(mid);
-  } else {
-    const c = (code.coins || [])[Number(index)];
-    if (!c) return;
-    c.modules = c.modules || [];
-    if (c.modules.includes(mid)) { toast('这个模块已经在这枚硬币里了', 'warn'); return; }
-    c.modules.push(mid);
-  }
-  toast('已置入：' + moduleName(mid), 'ok');
-  saveCode().catch((e) => toast(e.message, 'error'));
+  if (zone === 'skill') return addSlotFromModule('skill', 'skill', -1, mid);
+  return addSlotFromModule('skill', 'coin', Number(index), mid);
 }
+
 
 function removePlaced(zone, index, mid) {
   if (zone === 'passive' || zone === 'buff') {
@@ -4674,6 +4731,12 @@ function mbStmtHtml(b, idStr) {
       + '<span class="bk-name">把</span><select class="mb-var" data-mb-var="' + esc(idStr) + '">' + vars + '</select>'
       + '<span class="bk-name">设为</span>' + mbValHtml(b.val, idStr + ':val', 'num')
       + '<span class="bk-tag">SET</span></div>';
+  }
+  if (b.k === 'raw' || !b.n) {
+    const txt = String(b.text || '').trim();
+    const label = b.k === 'raw' ? '原样指令' : '未知控件';
+    return '<div class="bk bk-raw' + selCls(idStr) + '" data-mb-bk="' + esc(idStr) + '" title="' + esc(label + '：' + txt + '（保存时原样写回）') + '">' + mbDotHtml(idStr)
+      + '<span class="bk-name">' + esc(label) + '</span><code class="bk-rawtext">' + esc(txt || '(空)') + '</code></div>';
   }
   const row = (S.mbTables || []).find((r) => r.kind === 'consequence' && r.name === b.n);
   const label = row ? row.summary || b.n : b.n;
@@ -5796,6 +5859,9 @@ Object.assign(actions, {
     const zone = el.dataset.zone || 'main';
     await removeUnrec(zone, Number(el.dataset.coin), Number(el.dataset.index));
   },
+  'unlink-slot': async (el) => {
+    await removeSlot(el.dataset.kind || 'skill', el.dataset.zone || 'main', Number(el.dataset.coin), Number(el.dataset.index));
+  },
   'edit-unrec': async (el) => {
     const zone = el.dataset.zone || 'main';
     await openTempEditor(zone, Number(el.dataset.coin), Number(el.dataset.index));
@@ -6732,14 +6798,12 @@ function renderPassiveScripts(p) {
 }
 
 function renderSimpleCode(kind, doc) {
-  const code = doc.code || { modules: [] };
-  const chips = chipHtml(code.modules, kind, -1);
+  const zone = '<div class="drop-zone slot-stack" data-drop="' + kind + '" data-coin="-1">' + slotStackHtml(kind, 'main', -1) + '</div>';
   return '<div class="code-wrap code-simple"><div class="code-col"><div class="col-title">' + (kind === 'passive' ? '被动' : 'Buff') + '置入区</div>'
-    + '<div class="drop-zone ' + kind + '-zone" data-drop="' + kind + '">'
-    + (chips || (unrecHtml(doc.unrec || [], 'main', -1) ? '' : '<span class="dz-hint">把右侧模块拖到这里</span>')) + unrecHtml(doc.unrec || [], 'main', -1) + '</div></div>'
-    + '<div class="hint muted">从右侧模块列表拖入；这里只记录排布，尚未落到游戏脚本（映射留待后续版本）。</div>'
-    + renderPassiveScripts(doc) + '</div>';
+    + zone + '</div>'
+    + '<div class="hint muted">从右侧模块列表拖入；未识别模块会原样保留（🖊 可临时编辑）。</div></div>';
 }
+
 
 function renderSimpleDesc(kind, doc) {
   const id = kind === 'passive' ? 'passive-desc' : 'buff-desc';

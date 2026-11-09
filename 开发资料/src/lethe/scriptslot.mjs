@@ -100,3 +100,43 @@ export function scriptSlotList(letheRoot, { name, kind, id } = {}) {
   }
   return out.filter((x) => x.text);
 }
+
+/** 用「文本数组」整体回写某个槽位（保留旧条目的其它字段；空数组即清空） */
+export function writeSlotTexts(letheRoot, { name, kind, id, where = 'main', coin = -1, texts = [] } = {}) {
+  const mod = String(name || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const payload = readModPayload(dir);
+  const cat = kind === 'skill' ? 'skill' : kind === 'passive' ? 'passive' : kind === 'buff' ? 'buff' : null;
+  if (!cat) throw new SafetyError('未知类型：' + String(kind));
+  const found = entityOf(payload, cat, id);
+  const doc = wrapList(fileOf(dir, found.rel));
+  const ent = (doc.list || []).find((x) => String(x && x.id) === String(id));
+  if (!ent) throw new SafetyError('在 Mod 里找不到这个条目');
+  const list = (Array.isArray(texts) ? texts : []).map((t) => String(t == null ? '' : t)).filter((t) => t.trim());
+  if (list.length > 400) throw new SafetyError('脚本条数太多（上限 400）');
+  if (cat === 'skill') {
+    if (!Array.isArray(ent.skillData)) ent.skillData = [];
+    const seg = (ent.skillData[0] = ent.skillData[0] || {});
+    if (String(where) === 'coin') {
+      const ci = Number(coin) || 0;
+      if (!Array.isArray(seg.coinList)) seg.coinList = [];
+      const c = (seg.coinList[ci] = seg.coinList[ci] || {});
+      const old = Array.isArray(c.abilityScriptList) ? c.abilityScriptList : [];
+      c.abilityScriptList = list.map((t, i) => (old[i] && String(old[i].scriptName || '') === t ? old[i] : { scriptName: t }));
+    } else {
+      const old = Array.isArray(seg.abilityScriptList) ? seg.abilityScriptList : [];
+      seg.abilityScriptList = list.map((t, i) => (old[i] && String(old[i].scriptName || '') === t ? old[i] : { scriptName: t }));
+    }
+  } else if (cat === 'passive') {
+    ent.requireIDList = list.slice();
+  } else {
+    const old = Array.isArray(ent.list) ? ent.list : [];
+    ent.list = list.map((t, i) => {
+      const prev = old[i] && typeof old[i] === 'object' ? old[i] : {};
+      if (String(prev.ability || '') === t) return prev;
+      return Object.assign({}, prev, { ability: t });
+    });
+  }
+  const result = writeDoc(letheRoot, dir, mod, found.rel, doc);
+  return { ok: true, kind: cat, id: String(id), where: String(where), coin: Number(coin) || -1, count: list.length, ...result };
+}

@@ -1724,7 +1724,7 @@ body.mod-reordering { cursor: grabbing; }
 
 /* @digit-font:start */
 @font-face{font-family:"LCWDigit";src:url(data:font/woff2;base64,d09GMk9UVE8AAAcgAA0AAAAACrAAAAbSAABHrgAAAAAAAAAAAAAAAAAAAAAAAAAADYxdGhYbIBwwBmAAVAE2AiQDSAQGBYJSByA3OBvICVGUTVKC4sdBbsa60KZSqbTZCdu38CS8ZdF++9lzXKpYJoslq9YogdB5VA+JkiiBVIj7gC//P276D00GObR/KczTVJ2JGROjIkrFmNibWF2Ym930v7YjDG63/UOQYmRpRBmE2v+/36yINWlUk5Kgpsf9erkw1RcnaiET2s5KMbHTtyQa0vJetGk2Fscwc5G/rU5UEUXUYWJkdHxIYHCyO42r0A0J3UVCD7F1mxKhs5RoGckuRtq6lGzrLj32v58MPMw2dZf5dYTB/yFJRLJxOk937z5vW6TX+CbhManRvKM5W3Jm4BBDgntCDJ/9kwcQmBdMVuJOjzPAZ6A+KTzUXdGa54mIgTBET7SE7lCyiEhTARLl2+CVyEzkL3pSB/EK8U+Ji+T8vttAaawUl6uETsZvo9Jg1avqG2i/5Rs6lgJ/Dnjg/TtiDcdbHFuC1VaKXmRvhpj7JgyzZHcdt1Y4SG0UbP/jrSlCito26zpU5bCXeREMAl4CF4VhajuFyhYSgKFSeCqph/dqe7OQNHhErFcKTBreOAN4Ccb3tkxrZtteZgZCZsterWo0AuMvvfhV68+BXgLL3nFqMmBitI9l61LrcyEaBsCAC5teccJS+2riJjKAI4yqLDTEWrbaUrH5hvT0/CoTJ9hSpsKqSk5FxlentYQYOm6A1V896NnrUPwOURPGI5pgGft8OdHK2OtHW8tZL1fVYGD8XGCoCsY0gFcJUepk1ht5eSeuKsiI5jDxseeJLRlGE8afB3qeGt9/EJaBkh1AdTcMIXTDZibdh4YO51TrjMBwmKgZlJ0sLfl7RA869ne9vy4Dg44UTyPbX8AR3qpmXs4KvQonYhttzDDM94aMIc7U8Duh0H0MTglaCp9J2DGmkmZ/X6is2YlP0yC2DwbtITZEM7IN052uTvsGDJ8wQLztBA3oJ/PfBS+1+bQ10H/bBcwW3veXJxJqQ1Sb6fQ8J4oVnvy+B1MwBNNEL2+1IMx3BO4Nd7qV9kg10B9JSmFvBnrKN5TVlxRjurI4LdaSiKZh8g0yhmiafb4F9obuSB8uAAdlhcfRMAIsKFP/dxiDvnUYnv1G7AtO4CydBaIFHzU4U80lZQ2V1dmxnB9ov1GPdCbitiBMnFRDZGYvQqmCdRtWb2gcOSi7NhgrNnGqouo0oZz1hGEm+QYS2OsFa+JR9OBMsdsPPLqBZT1JdweSjUk2DQlywQK00Oxx5yhV44xm7t0pzNDolEmtg2V8Wz1xyjjkgHghFpOnUnGipRz14zlsBgUO5IjYYl1NyIV0mv09Jj0hFE+liba3nBNmSrlQerblDQUqlReP2MTmzuAEvsCojjGgffS/2M/QxGfUxJmKy8lKTE8rNXH7idaB6n86Fty2Ug77e6ddmWRSI0/PecrtxbvLtjXTQCnjwvlL5mM6PbfaZPmNWrhZqsYBHTgkXMfer09fJhNM4YH7Bu+cTbPvHRT6NjO35R7Be+g9lCoFEgR/tdUfR8c/VoH6FTKRiZavViz7vX+VqYwFQvkRdAWmAjlZ6FGYUQCvAL1SWJcWgtWbWESLRGqrvlPjl6y7DRq8Zg0GzeI1RIMXL8ZEI1O2nm6zeDNAON1iIVMSLTXsQAKYg/mBxtscaKnbvo3EnFNWFeQkWvanEo05BoOxpIF7RDUUlFRxytNtRNwKcCY8ATFdC1rQwgullEbC8G1cAIxW+gfMHYcH0V6gf0fhPcWm8m3VoWtjV0Wtmb1s3iZMwyD50qplzVijjfjBnOv+B3Ye3X8PP6J3EV0ghQPz5mSE00pEgLCgUCCVEtLmQFAZR3SNmjAd0dRfaAkFEsnd5k7yexZ3RlIM4p7AlDjEMbRYX+VL1iAZiFd8CCEcEk3o5xWxaw0OuEoAt6MN0XFk555Y+GeO5s7FdGtFd4hDfB2P52kFJDCtEYnFUt0eoiPMpVS46CvdvdZBlsGt4N/jf1h997/4vx9bCUT5kJMvYHOi2t9swB9aKXkPAc9rr4sSc7Qz7W/2mOQiVJfEZZkM4+buLYql7XoKJBJ0Tua5KaNDZgmbRSJm8NClMYjKR6SyM+qQN2LoXWalUVBAix9RiDLQ7J8VFlASgrXqe6/tgIA9lOElccu9QtTNK3U0T1REr1b0lAz6NKPEi5OCFytQiFC8IBl44WKkisZzlGZOlinQEAYJ3IEzBi+bDFq6OzkZVnYy2SEnDSOzyyPwNUMCk5gYSi1UmJIwOrsyRKBgPurQynCpYjInJrUpZT88Q8Iae+vDjRdgSfRMVPYyU2gJmMyBepHHyJ2axq/DKf8nIEcBCbG9ZCiOBYhdEyiBU7F00ziEBOXaAwAA) format("woff2");font-display:block;font-weight:400}
-.sk-base,.sk-coinval{font-family:"LCWDigit",var(--serif)}
+.sk-base,.sk-coinval{font-family:"LCWGame","Microsoft YaHei UI",var(--serif)}
 .sk-base{letter-spacing:.5px}
 /* @digit-font:end */
 
@@ -1852,3 +1852,20 @@ body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
 .chip-edit:hover{color:#E3C07E}
 .coin-col .coin-card{width:100%}
 .coin-col .drop-zone{min-height:56px}
+
+/* @slot-stack-v1:start */
+.slot-stack{display:flex;flex-direction:column;gap:6px;min-height:72px;padding:8px;border:1px dashed #4a3d2a;border-radius:6px;background:rgba(0,0,0,.18);overflow:auto;max-height:420px}
+.slot-stack.drop-hot{outline:2px solid var(--gold,#C6A15B)}
+.slot-empty{color:#8c7f6a;font-size:12px;padding:10px 4px;text-align:center}
+.slot-bk{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;padding:6px 8px;border:1px solid #4a3d2a;border-radius:5px;background:#221a12}
+.slot-bk .sb-name{font-size:12.5px;color:#F0E2C6;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot-bk .sb-tag{font-size:10.5px;color:#C6A15B;border:1px solid #6b5530;border-radius:3px;padding:0 4px}
+.slot-bk .sb-x,.slot-bk .sb-edit{cursor:pointer;background:transparent;border:0;color:#b9a685;font-size:13px;line-height:1}
+.slot-bk .sb-x:hover{color:#e0705f}
+.slot-bk .sb-code{grid-column:1/-1;margin:4px 0 0;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#a99a80;max-height:56px;overflow:auto;opacity:.85}
+.slot-bk.sb-ro{opacity:.7}
+.slot-bk.sb-unrec{border-color:#7a5a2a}
+.slot-bk.sb-unrec.ok{border-color:#3f7a52}
+.bk.bk-raw{border-color:#8a6a3a;background:#2a2416}
+.bk .bk-rawtext{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#E8DCC6;background:rgba(0,0,0,.25);padding:2px 6px;border-radius:3px;margin-left:6px}
+/* @slot-stack-v1:end */
