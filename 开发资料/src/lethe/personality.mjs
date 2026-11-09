@@ -338,8 +338,8 @@ export async function savePersonality(letheRoot, { name, id, entity = {}, locale
 
   const locEntry = findLocaleEntry(p.locales.EN?.personality, id);
   const locPatch = pick(locale, LOCALE_FIELDS);
-  /* 称号 / 简介不再使用：保存时强制清空（旧数据也一并清掉） */
-  locPatch.title = '';
+  /* 简介不再使用：保存时强制清空 */
+  if (locPatch.title === undefined && locEntry && locEntry.title) locPatch.title = locEntry.title;
   locPatch.desc = '';
   const locDiff = {};
   for (const [k, v] of Object.entries(locPatch)) {
