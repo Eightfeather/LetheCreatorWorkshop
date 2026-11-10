@@ -213,10 +213,10 @@ export function materializeVanilla(letheRoot, name, id) {
   const entry = van.locale ? JSON.parse(JSON.stringify(van.locale)) : { id: pid, name: String(pid), title: '', desc: '' };
   // 从原版复制时不要自动带称号/描述（文档 17 第 10 条）：名称与 id 保留，称号/描述清空
   entry.id = pid;
-  if (!entry.name) entry.name = String(pid);
-  entry.title = '';
+  const sinner = sinnerName(letheRoot, entity.characterId);
+  if (sinner) entry.name = sinner;
+  else if (!entry.name) entry.name = String(pid);
   entry.desc = '';
-  entry.oneLineTitle = '';
   ensureLayout(dir, 'personality');
   const files = [
     { rel: `custom_limbus_data/personality/${stem}.json`, content: JSON.stringify({ list: [entity] }, null, 2) },
@@ -338,8 +338,13 @@ export async function savePersonality(letheRoot, { name, id, entity = {}, locale
 
   const locEntry = findLocaleEntry(p.locales.EN?.personality, id);
   const locPatch = pick(locale, LOCALE_FIELDS);
-  /* 称号 / 简介不再使用：保存时强制清空（旧数据也一并清掉） */
-  locPatch.title = '';
+  /* v0.9.22：locale.title 才是外显的人格名（可编辑）；locale.name 固定为所属罪人的名字；简介不再使用 */
+  const curEnt = (p.data.personality || []).find((x) => String(x.id) === String(id))?.entity || {};
+  const cid = Number((entDiff && entDiff.characterId) ?? curEnt.characterId ?? 0) || 0;
+  const sinner = cid ? sinnerName(letheRoot, cid) : '';
+  const autoName = sinner || String((locEntry && locEntry.name) || locPatch.name || '');
+  if (autoName) locPatch.name = autoName;
+  else delete locPatch.name;
   locPatch.desc = '';
   const locDiff = {};
   for (const [k, v] of Object.entries(locPatch)) {
@@ -368,6 +373,17 @@ export async function savePersonality(letheRoot, { name, id, entity = {}, locale
   if (!files.length) return { changed: false, changes: [], fields: [], materialized };
   const result = writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod: cleanName(name) });
   return { changed: true, fields: labels, materialized, ...result };
+}
+
+/** locale.name 固定为「所属罪人」的名字；人格外显名用 locale.title */
+export function sinnerName(letheRoot, characterId) {
+  const cid = Number(characterId);
+  if (!Number.isInteger(cid) || cid <= 0) return '';
+  const map = readJson(join(letheRoot, 'dumpedData', 'limbus_locale', 'EN', 'characterList.json'), {}) || {};
+  let v = map[String(cid)];
+  if (v == null && Array.isArray(map.list)) v = map.list.find((x) => String(x.id) === String(cid));
+  if (v == null) return '';
+  return String(typeof v === 'object' ? v.name || '' : v).trim();
 }
 
 export function personalityIdTaken(letheRoot, id) {
@@ -407,10 +423,10 @@ export function createPersonality(letheRoot, { name, characterId, id, displayNam
 
   const entry = {
     id: String(pid),
-    name: displayName || '',
-    title,
+    name: sinnerName(letheRoot, cid) || String(cid),
+    title: displayName || title || '',
     desc,
-    oneLineTitle: title,
+    oneLineTitle: title || displayName || '',
     acquisitionMethod: 'Custom',
     skinItemTitle: '',
     skinItemDesc: '',

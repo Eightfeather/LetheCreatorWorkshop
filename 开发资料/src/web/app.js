@@ -589,7 +589,7 @@ function renderModDetail() {
 
 function renderCurrentMod(d) {
   const cats = (d.dataCategories || []).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
-  const persons = (d.personalities || []).slice(0, 12).map((p) => `<div class="mini-person"><strong>${esc(p.name || p.id)}</strong><small>${esc(p.title || '')}</small><span class="muted">${esc(p.id)}</span></div>`).join('');
+  const persons = (d.personalities || []).slice(0, 12).map((p) => `<div class="mini-person"><strong>${esc(p.title || p.name || p.id)}</strong><small>${esc(p.title ? (p.name || '') : '')}</small><span class="muted">${esc(p.id)}</span></div>`).join('');
   return `<div class="detail-section">
     <h4>数据类目</h4>
     <div class="chips">${cats || '<span class="muted">这个 Mod 还没有数据文件</span>'}</div>
@@ -604,7 +604,7 @@ function renderCurrentMod(d) {
 function renderBackupView() {
   const b = S.backupView;
   if (!b) return `<div class="empty-state"><p>正在读取备份…</p></div>`;
-  const persons = (b.personalities || []).map((p) => `<div class="mini-person"><strong>${esc(p.name || p.id)}</strong><small>${esc(p.title || '')}</small><span class="muted">${esc(p.id)}</span></div>`).join('');
+  const persons = (b.personalities || []).map((p) => `<div class="mini-person"><strong>${esc(p.title || p.name || p.id)}</strong><small>${esc(p.title ? (p.name || '') : '')}</small><span class="muted">${esc(p.id)}</span></div>`).join('');
   return `<div class="readonly-note">备份为只读。若要回到这个版本，使用下方「替换当前版本」——两者会互换，操作无法撤销。</div>
   <div class="detail-section"><h4>人格</h4><div class="mini-grid">${persons || '<span class="muted">这个备份里没有人格</span>'}</div></div>
   <div class="detail-actions inner">
@@ -767,7 +767,7 @@ function renderSinnerPersonalities(banner) {
     return `<${act ? 'button' : 'div'} class="p-card ${kind}${on ? ' active' : ''}" ${act ? `data-act="${act}" data-id="${esc(p.id)}"` : ''} title="${esc((p.name || p.id) + (p.title ? ' · ' + p.title : '') + ' · 稀有度 ' + pRankLabel(p.rank))}">
       <span class="pc-art" style="background-image:${sinnerCard(S.sinner)}"></span>
       <span class="pc-slot"><span class="pc-rank rank-${r}" title="稀有度 ${esc(pRankLabel(p.rank))}"></span></span>
-      <span class="pc-plate"><strong>${esc(p.name || p.id)}</strong><small>${esc(p.title || '')}</small><em>${esc(p.id)}</em></span>
+      <span class="pc-plate"><strong>${esc(p.title || p.name || p.id)}</strong><small>${esc(p.title ? (p.name || '') : '')}</small><em>${esc(p.id)}</em></span>
       ${kind === 'vanilla' ? '<span class="pc-tag">原版</span>' : ''}
     </${act ? 'button' : 'div'}>`;
   };
@@ -1264,7 +1264,7 @@ function renderPersonalityDetail() {
   const sess = S.session || {};
   const dirty = Boolean(sess.dirty);
   const modEnabled = S.mods.find((m) => m.name === S.selected)?.enabled !== false;
-  const name = l.name || String(p.id);
+  const name = l.title || l.name || String(p.id);
   const vanilla = Boolean(p.vanilla);
   const ro = Boolean(S.pReadonly);
   const passiveCounts = (st.passives && st.passives.counts) || { battle: 0, supporter: 0 };
@@ -1321,7 +1321,8 @@ function renderPersonalityDetail() {
       ${locked ? '<div class="banner lock">🔒 该人格的源码已被手动修改并锁定：表单已锁定，只能通过「查看源代码」修改（删除人格可解除）。</div>' : ''}
 
       ${pSection('基础数值', `
-        ${pRow('人格名称', `<input data-field="locale.name" value="${esc(l.name ?? '')}" placeholder="必填">`)}
+        ${pRow('人格名称（外显）', `<input data-field="locale.title" value="${esc(l.title ?? '')}" placeholder="必填">`)}
+        ${pRow('所属罪人', `<span class="p-chip">${esc(l.name || '由所选罪人自动填入')}</span>`, '保存时自动写入 locale.name')}
         ${pRow('稀有度', rankPicker + `<select class="sr-only" data-field="entity.rank" tabindex="-1" aria-hidden="true">${rankList.map((r) => `<option value="${r}" ${Number(e.rank) === r ? 'selected' : ''}>${r}</option>`).join('')}</select>`)}
         <div class="p-grid2">
           ${pRow('防御修正值', `<input type="text" inputmode="decimal" data-num="1" data-field="entity.defCorrection" value="${esc(e.defCorrection ?? '')}" placeholder="-999 ~ +999">`, '-999 ~ +999')}
@@ -1704,7 +1705,7 @@ function openCreatePersonality() {
   modal({
     title: '新建人格',
     body: `<div class="hint muted">罪人：${esc(sinner?.name || '未选择')} · Mod：${esc(S.selected || '')}</div>
-      <label class="field"><span>人格名称（必填）</span><input id="np-name" placeholder="例如：测试人格"></label>
+      <label class="field"><span>人格名称（外显，必填）</span><input id="np-name" placeholder="例如：测试人格"></label>
       <label class="field"><span>人格 id（必填，不得与任何单位重复）</span><input id="np-id" placeholder="例如：10199"><span class="p-hint" id="np-id-hint"></span></label>
       <div class="grid-2">
       </div>

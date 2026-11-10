@@ -35,3 +35,4 @@ desktop.ini
 开发资料/review*.json
 # 本地产物
 *.zip
+/_*.mjs

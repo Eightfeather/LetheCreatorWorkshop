@@ -47,14 +47,9 @@ const SIN = [
 writeJson(join(LETHE, 'dumpedData', 'limbus_locale', 'EN', 'attributeList.json'), {
   list: SIN.map(([id, name]) => ({ id, name })),
 });
-writeJson(join(LETHE, 'dumpedData', 'limbus_locale', 'EN', 'characterList.json'), {
-  list: [
-    { id: 1, name: '李箱' }, { id: 2, name: '浮士德' }, { id: 3, name: '堂吉诃德' },
-    { id: 4, name: '良秀' }, { id: 5, name: '默尔索' }, { id: 6, name: '鸿璐' },
-    { id: 7, name: '希斯克利夫' }, { id: 8, name: '以实玛利' }, { id: 9, name: '罗佳' },
-    { id: 10, name: '辛克莱' }, { id: 11, name: '奥提斯' }, { id: 12, name: '格里高尔' },
-  ],
-});
+// 与真实 dumpedData 一致：characterList 是 { "1": { id, name } } 的映射（不是 list 数组）
+const SINNERS = [[1, '李箱'], [2, '浮士德'], [3, '堂吉诃德'], [4, '良秀'], [5, '默尔索'], [6, '鸿璐'], [7, '希斯克利夫'], [8, '以实玛利'], [9, '罗佳'], [10, '辛克莱'], [11, '奥提斯'], [12, '格里高尔']];
+writeJson(join(LETHE, 'dumpedData', 'limbus_locale', 'EN', 'characterList.json'), Object.fromEntries(SINNERS.map(([id, name]) => [String(id), { id: String(id), name }])));
 writeJson(join(LETHE, 'dumpedData', 'limbus_locale', 'EN', 'skillTagList.json'), {
   StartBattle: { id: 'StartBattle', name: '[战斗开始]' },
   RoundStart: { id: 'RoundStart', name: '[回合开始]' },
@@ -74,7 +69,7 @@ writeJson(join(LETHE, 'dumpedData', 'limbus_locale', 'EN', 'keywordList.json'), 
   MRR566: { id: 'MRR566', name: '攻击性折射', desc: '示例关键词' },
 });
 writeJson(join(LETHE, 'dumpedData', 'limbus_locale', 'EN', 'personalityList.json'), {
-  10101: { id: 10101, name: 'LCB 罪人', title: '李箱', desc: '示例人格' },
+  10101: { id: 10101, name: '李箱', title: 'LCB 罪人', desc: '示例人格' },
 });
 writeJson(join(LETHE, 'dumpedData', 'limbus_locale', 'EN', 'passiveList.json'), {
   90001: { id: 90001, name: '虫的肉体', desc: '回合结束时，恢复5点体力。' },
