@@ -325,10 +325,11 @@ h1,h2,h3,h4{font-family:var(--serif);letter-spacing:.06em;margin:0}
 .module-item .m-head strong { font-size: 12px; letter-spacing: .04em; }
 .module-item .m-desc { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--muted, #A79780); }
 .skill-main .panel-head.skill-head { gap: 8px; flex-wrap: wrap; }
-.skill-title { display: flex; flex-direction: column; min-width: 0; }
-.skill-title strong { font-size: 13px; letter-spacing: .06em; }
-.skill-title small { color: var(--muted, #A79780); font-size: 11px; }
+.skill-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.skill-title strong { font-size: 16px; font-weight: 700; letter-spacing: .04em; color: var(--gold-hi, #F3E4D0); }
+.skill-title small { color: var(--muted, #A79780); font: 12px var(--mono); }
 .skill-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px; padding: 10px; min-height: 0; overflow: auto; }
+.skill-body.full-json { display: flex; flex-direction: column; grid-template-columns: none; }
 .info-card, .editor-card { border: 1px solid #3A3128; background: #1A1613; padding: 10px; min-width: 0; }
 .col-title { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--gold, #C6A15B); margin-bottom: 8px; }
 .info-card .grid-2 { gap: 8px; }
@@ -1183,6 +1184,7 @@ body.mb-dragging, body.mb-dragging * { cursor: grabbing !important; user-select:
 .p-res{font-size:11.5px;border:1px solid var(--line);padding:1px 7px;color:#D9C9A8}
 .p-res.bad{border-color:#8C1F2B;color:#E58A96}
 .p-res.good{border-color:#6E8B6B;color:#9FD3A0}
+.p-res.immune{border-color:#555555;color:#888888;background:rgba(100,100,100,.12)}
 .p-bar{position:relative;height:14px;background:#2a1512;border:1px solid #4a2a22;overflow:hidden}
 .pb-fill{position:absolute;inset:0;background:linear-gradient(90deg,#8C1F2B,#C0483F)}
 .pb-mark{position:absolute;top:0;bottom:0;width:2px;background:#000}
@@ -1247,6 +1249,7 @@ body.mb-dragging, body.mb-dragging * { cursor: grabbing !important; user-select:
 .p-chip{font-size:12px;color:var(--text);background:#241d17;border:1px solid var(--line);border-radius:999px;padding:2px 9px}
 .p-res{font-size:12px;border-radius:999px;padding:2px 8px;background:#241d17;border:1px solid var(--line);color:var(--muted)}
 .p-res.good{color:#8FB98A;border-color:#3f5a3c}
+.p-res.immune{color:#888888;border-color:#555555;background:#181818}
 .p-res.bad{color:#D06A5C;border-color:#5c3a34}
 .p-bar-wrap{display:flex;align-items:center;gap:8px;width:34%;min-width:220px}
 .p-bar{position:relative;flex:1;height:12px;border-radius:999px;background:#2a2019;border:1px solid var(--line);overflow:visible}
@@ -1490,6 +1493,7 @@ select option { background: #141110; color: #E8DCC6; }
 
 /* ===== v0.8.5：人格表单可读性与稀有度图（用户 12 条 4.1/5.1/5.3/5.5/6） ===== */
 .p-edit .p-row{grid-template-columns:minmax(0,1fr);gap:4px;align-items:stretch}
+.p-edit .p-grid2 .p-row{align-content:start}
 .p-edit .p-label{font-size:12px;color:#CBBA9C;letter-spacing:.02em}
 .p-edit .p-input{width:100%}
 .p-edit .p-input > input,.p-edit .p-input > select,.p-edit .p-input > textarea{width:100%;max-width:560px}

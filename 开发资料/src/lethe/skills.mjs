@@ -74,6 +74,11 @@ export function gameSkillIndex(letheRoot) {
         byId.set(id, { id, source: prev ? prev.source : 'mod', mod: prev && prev.source === 'vanilla' ? prev.mod : mod, file: prev && prev.source === 'vanilla' ? prev.file : file, overriddenBy: prev && prev.source === 'vanilla' ? mod : '' });
       }
     }
+    const locDoc = readModSkillLocale(letheRoot, mod);
+    for (const [k, v] of Object.entries(locDoc)) {
+      const nm = levelName(v);
+      if (nm) names.set(String(k), nm);
+    }
   }
   for (const [id, rec] of byId) rec.name = names.get(id) || '';
   const index = { byId, names, letheRoot, builtAt: new Date().toISOString() };
