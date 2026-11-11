@@ -956,6 +956,29 @@ function pHeadBar(st) {
   </div>`;
 }
 
+
+function pResistLabel(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '';
+  if (n === 0) return '免疫';
+  if (n > 1.5) return '致命';
+  if (n > 1.0) return '脆弱';
+  if (Math.abs(n - 1.0) < 0.001) return '一般';
+  if (n <= 0.5) return '抵抗';
+  return '耐性';
+}
+
+function pResistClass(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '';
+  if (n === 0) return 'immune';
+  if (n > 1.0) return 'bad';
+  if (n < 1.0) return 'good';
+  return 'normal';
+}
+
 function pResistChips(e) {
   const rows = (e.resistInfo && e.resistInfo.atkResistList) || [];
   return ATK_LIST.map((k) => {
@@ -1261,7 +1284,7 @@ function renderPersonalityDetail() {
     <aside class="p-portrait">
       <div class="pp-frame">${pPortraitHtml()}</div>
       <button class="btn ghost sm" data-act="p-portrait">编辑立绘</button>
-      <div class="pp-id">${esc(p.id)}${vanilla ? ' · 原版' : ''}</div>
+      <div class="pp-id" style="display:flex; align-items:center; justify-content:center; gap:4px;">${esc(p.id)}${vanilla ? ' · 原版' : `<button class="btn ghost xs" data-act="p-change-id" title="修改人格 ID">修改 ID</button>`}</div>
       ${ro ? '<button class="btn primary sm" data-act="p-export-edit" data-id="' + esc(p.id) + '" title="导出到本 Mod 并编辑">导出到本 Mod 并编辑</button>' : ''}
     </aside>
     <div class="p-main${locked ? ' p-locked' : ''}${ro ? ' p-readonly' : ''}">
@@ -1638,7 +1661,12 @@ function openSettings() {
           </select>
         </label>
       </div>
-      <label class="field"><span>私服路径（游戏目录或 Lethe 目录）</span><input id="set-root" value="${esc(st.gameRoot || st.letheRoot || '')}" placeholder="D:\\私服"></label>
+      <label class="field"><span>私服路径（游戏目录或 Lethe 目录）</span>
+        <div class="row gap" style="margin-top: 4px;">
+          <input id="set-root" value="${esc(st.gameRoot || st.letheRoot || '')}" placeholder="D:\\私服" style="flex:1;">
+          <button class="btn ghost sm" data-act="pick-folder" style="white-space:nowrap;">📁 浏览文件夹</button>
+        </div>
+      </label>
       <div class="row gap">
         <button class="btn primary sm" data-act="apply-root">使用这个目录</button>
         <button class="btn ghost sm" data-act="locate-quick">自动定位</button>
@@ -2340,6 +2368,75 @@ const actions = {
   'save-personality': () => saveCurrent(),
   undo: () => doUndo(),
   redo: () => doRedo(),
+  'save-skill-json': async () => {
+    const ta = $('#skill-raw-json-editor');
+    if (!ta || !S.skill) return;
+    let doc;
+    try {
+      doc = JSON.parse(ta.value);
+    } catch (err) {
+      toast('JSON 格式错误，请检查括号与引号：' + err.message, 'error');
+      return;
+    }
+    try {
+      await api('/api/skill/source', {
+        method: 'POST',
+        body: {
+          name: S.selected,
+          id: S.skillId,
+          entity: doc.entity,
+          locale: doc.locale,
+        },
+      });
+      toast('技能原始 JSON 已写回并保存', 'ok');
+      await openSkill(S.skillId);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  },
+  'p-edit-skill-identity': (el) => {
+    const curId = el.dataset.id;
+    const curName = el.dataset.name;
+    modal({
+      title: `修改技能信息 #${curId}`,
+      body: `
+        <label class="field"><span>技能 ID</span><input id="edit-skmain-id" value="${esc(curId)}" autocomplete="off"><span class="p-hint" id="edit-skmain-hint"></span></label>
+        <label class="field"><span>技能名称</span><input id="edit-skmain-name" value="${esc(curName)}" autocomplete="off"></label>
+        <div class="hint muted">修改技能 ID 将同步更新 Mod 数据文件与语言包，并更新当前技能编辑器加载的 ID。</div>`,
+      footer: `<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="submit-edit-skmain" data-old-id="${esc(curId)}">保存更改</button>`,
+    });
+    setTimeout(() => {
+      const inp = $('#edit-skmain-id');
+      if (inp) {
+        inp.focus();
+        inp.addEventListener('input', () => {
+          const v = inp.value.trim();
+          const hint = $('#edit-skmain-hint');
+          if (!hint) return;
+          if (v && Number(v) > 2147483647) {
+            hint.textContent = '⚠️ 警告：超过 32 位整型上限 (2147483647)！';
+            hint.className = 'p-hint bad';
+          } else { hint.textContent = ''; hint.className = 'p-hint'; }
+        });
+      }
+    }, 30);
+  },
+  'submit-edit-skmain': async (el) => {
+    const oldId = el.dataset.oldId;
+    const newId = $('#edit-skmain-id')?.value?.trim();
+    const newName = $('#edit-skmain-name')?.value?.trim();
+    if (!newId) { toast('请填写技能 ID', 'warn'); return; }
+    if (Number(newId) > 2147483647) {
+      if (!confirm('ID 已超过 2147483647 (INT32 上限)，确认继续？')) return;
+    }
+    try {
+      await api('/api/skill/update-identity', { method: 'POST', body: { name: S.selected, oldId, newId, newName } });
+      closeModal();
+      toast('技能 ID / 名称已更新', 'ok');
+      await loadSkillList();
+      await openSkill(newId);
+    } catch (e) { toast(e.message, 'error'); }
+  },
   'open-skill': (el) => openSkill(el.dataset.id),
   'skill-tab': (el) => { S.skillTab = el.dataset.tab; render(); },
   'new-skill': () => openCreateSkill(),
@@ -2354,6 +2451,43 @@ const actions = {
   'risk-save-skill': () => riskSave(),
   'search-skill': (el) => { S.skillSearch = el.value; render(); refocus(el.id, el.value.length); },
   'search-module': (el) => { S.moduleSearch = el.value; render(); refocus(el.id, el.value.length); },
+  'pick-folder': async () => {
+    try {
+      const res = await api('/api/dialog/folder', { method: 'POST' });
+      if (res && res.path) {
+        const inp = $('#set-root');
+        if (inp) inp.value = res.path;
+      }
+    } catch (e) { toast(e.message, 'error'); }
+  },
+  'wizard-pick-folder': async () => {
+    try {
+      const res = await api('/api/dialog/folder', { method: 'POST' });
+      if (res && res.path) {
+        const inp = $('#wizard-root');
+        if (inp) inp.value = res.path;
+      }
+    } catch (e) { toast(e.message, 'error'); }
+  },
+  'wizard-finish': async () => {
+    const editorName = $('#wizard-editor')?.value?.trim() || '但丁';
+    const theme = $('#wizard-theme')?.value || 'dark';
+    const editorPreference = $('#wizard-pref')?.value || 'visual';
+    const path = $('#wizard-root')?.value?.trim();
+
+    try {
+      await api('/api/config', { method: 'POST', body: { editorName, theme, editorPreference } });
+      S.status = { ...S.status, editorName, theme, editorPreference };
+      document.documentElement.dataset.theme = theme;
+      if (path) {
+        await api('/api/root', { method: 'POST', body: { path } });
+      }
+      await bootData();
+      toast('欢迎使用工作台！配置已保存', 'ok');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  },
   'save-settings': async () => {
     const dgOn = document.getElementById('set-delguard-on');
     const dgSec = document.getElementById('set-delguard-sec');
@@ -3568,6 +3702,27 @@ function descKwListHtml() {
 function descKwToolsHtml() {
   return '';
 }
+
+function renderSkillJsonView(sk) {
+  const rawObj = {
+    entity: sk.rawEntity || sk.entity || {},
+    locale: sk.rawLocale || sk.locale || {},
+  };
+  const jsonStr = JSON.stringify(rawObj, null, 2);
+  return `<div class="editor-card" style="display:flex; flex-direction:column; height: 100%; min-height: 550px;">
+    <div class="tabs" style="margin-bottom:8px;">
+      <button class="tab" data-act="skill-tab" data-tab="code">代码（积木）</button>
+      <button class="tab" data-act="skill-tab" data-tab="desc">描述</button>
+      <button class="tab active" data-act="skill-tab" data-tab="json">原始 JSON 源码</button>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <span class="muted" style="font-size:12px;">直接编辑底层实体与本地化 JSON 结构，方便查错与排障</span>
+      <button class="btn primary sm" data-act="save-skill-json">保存原始 JSON</button>
+    </div>
+    <textarea id="skill-raw-json-editor" class="ps-text" spellcheck="false" wrap="off" style="flex:1; min-height: 480px; font-family: monospace; background:#141110; color:#e0d2b4; border:1px solid var(--line); border-radius:6px; padding:10px;">${esc(jsonStr)}</textarea>
+  </div>`;
+}
+
 function renderSkillDesc(sk) {
   const text = descTextOf(sk);
   const st = descStateOf('skill');

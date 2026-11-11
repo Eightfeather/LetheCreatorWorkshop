@@ -6,18 +6,19 @@ import { dirname, join } from 'node:path';
 import { APP_ROOT, USER_DATA_DIR } from '../paths.mjs';
 import { configPath, rememberRoot, saveConfig } from '../config.mjs';
 import { SafetyError } from '../safety.mjs';
+import { readJson, writeFilesTransactional } from '../atomic.mjs';
 import { locate, scanStats } from '../locate.mjs';
-import { createMod, disableMod, dirOf, enableMod, listMods, modDir, modDirSafe, readModPayload, resolveModDir, saveModOrder, deleteModEverywhere } from '../lethe/mods.mjs';
+import { entitiesOf, createMod, disableMod, dirOf, enableMod, listMods, modDir, modDirSafe, readModPayload, resolveModDir, saveModOrder, deleteModEverywhere } from '../lethe/mods.mjs';
 import { listDlls, setDllEnabled } from '../lethe/dlls.mjs';
 import { appearanceOptions, appearanceCatalog, writePortrait, deletePersonality, passiveEdit, personalitySource, savePersonalitySource, isSourceLocked,  createPersonality, getPersonality, getPersonalityAny, listPersonalities, materializeVanilla, personalityIdTaken, personalityStats, savePersonality} from '../lethe/personality.mjs';
 import { i18nTables } from '../knowledge/personality-i18n.mjs';
-import { isUnitIdTaken, searchUnits, unitCounts } from '../lethe/units.mjs';
+import { isUnitIdTaken, searchUnits, unitCounts, clearUnitCache } from '../lethe/units.mjs';
 import { vanillaIndex } from '../lethe/vanilla.mjs';
 import { createDllBackup, createUserBackup, listDllBackups, listUserBackups, readBackupPayload, swapBackup } from '../lethe/backups.mjs';
 import { autoBackupsDir, journalDir, markCleanExit, markRunning, readSessionMarker, readState, updateState, writeState } from '../lethe/state.mjs';
 import { restoreFromSlot, slotInfo } from '../lethe/snapshot.mjs';
 import { homeStats } from '../lethe/stats.mjs';
-import { createSkill, getSkill, importSkills, listSkills, searchSkillIndex, skillsOfVanillaPersonality } from '../lethe/skills.mjs';
+import { createSkill, getSkill, importSkills, listSkills, searchSkillIndex, skillsOfVanillaPersonality, clearSkillCache, skillExistsAnywhere } from '../lethe/skills.mjs';
 import { BUFF_CLASSES, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, skillCodePath } from '../lethe/meta.mjs';
 import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex } from '../lethe/passives.mjs';
 import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex } from '../lethe/buffs.mjs';
@@ -35,6 +36,20 @@ import { SCOPES, TIMING_SCOPE, COMMAND_SCOPE, TIMING_CONTAINERS, COMMAND_CONTAIN
 import { createApi } from './api-shared.mjs';
 import { compileProgram, compileTimingRows } from '../lethe/program.mjs';
 import { saveCompiledBuff, saveCompiledPassive, saveCompiledSkill, savePassiveFields, saveSkillFields, saveBuffScripts, saveBuffFields } from '../lethe/apply.mjs';
+
+
+function listModulesWithCode(letheRoot) {
+  return listModules(letheRoot).map((m) => {
+    let code = '';
+    try {
+      const rows = compileProgram(m.program) || [];
+      code = Array.isArray(rows) ? rows.join('\n') : String(rows || '');
+    } catch {
+      code = '';
+    }
+    return { ...m, code };
+  });
+}
 
 function ensureRoot(state) {
   if (!state || !state.letheRoot) {
@@ -721,6 +736,50 @@ export function buildApi(ctx) {
       return { ok: true, committed: true, session: session.state(body.name) };
     },
 
+
+    'POST /api/personality/update-id': async (body) => {
+      const { letheRoot } = need();
+      const mod = cleanName(body.name, 'Mod 名称');
+      const oldId = String(body.oldId || '').trim();
+      const newId = String(body.newId || '').trim();
+      if (!oldId || !newId) throw new SafetyError('缺少参数');
+      if (oldId === newId) return { ok: true, id: newId };
+      if (!/^\d{4,10}$/.test(newId)) throw new SafetyError('人格 ID 必须是 4-10 位数字');
+      const taken = personalityIdTaken(letheRoot, newId);
+      if (taken) throw new SafetyError(`人格 ID ${newId} 已被占用`);
+
+      const dir = modDirSafe(letheRoot, mod);
+      const payload = readModPayload(dir);
+      const found = (payload.data.personality || []).find((x) => String(x.id) === oldId);
+      if (!found) throw new SafetyError('在 Mod 里找不到人格 ' + oldId);
+
+      const files = [];
+      const doc = readJson(join(dir, found.rel), null);
+      const list = entitiesOf(doc);
+      list[found.index].id = Number(newId);
+      files.push({ rel: found.rel, content: JSON.stringify(doc, null, 2) });
+
+      const locFound = (payload.locales.EN?.personality || []).find((x) => String(x.key) === oldId);
+      if (locFound) {
+        const locDoc = readJson(join(dir, locFound.rel), null);
+        if (locDoc) {
+          if (Array.isArray(locDoc.list)) {
+            const hit = locDoc.list.find((e) => String(e.id) === oldId);
+            if (hit) hit.id = newId;
+          } else {
+            locDoc[newId] = locDoc[oldId];
+            if (locDoc[newId]) locDoc[newId].id = newId;
+            delete locDoc[oldId];
+          }
+          files.push({ rel: locFound.rel, content: JSON.stringify(locDoc, null, 2) });
+        }
+      }
+
+      writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+      clearUnitCache();
+      return { ok: true, id: newId };
+    },
+
     'POST /api/personality/create': async (body) => {
       const { letheRoot } = need();
       const created = createPersonality(letheRoot, body);
@@ -807,7 +866,7 @@ export function buildApi(ctx) {
       return {
         ok: true,
         skills: name ? listSkills(letheRoot, name) : [],
-        modules: listModules(letheRoot),
+        modules: listModulesWithCode(letheRoot),
         defaults: DEFAULT_INFO,
       };
     },
@@ -924,9 +983,104 @@ export function buildApi(ctx) {
       }
       return { ok: true, dataUrl: '', file: null };
     },
+
+    'POST /api/skill/source': async (body) => {
+      const { letheRoot } = need();
+      const mod = String(body.name || '');
+      const id = String(body.id || '');
+      const dir = modDirSafe(letheRoot, mod);
+      const payload = readModPayload(dir);
+      const found = (payload.data.skill || []).find((x) => String(x.id) === id);
+      if (!found) throw new SafetyError('在 Mod 里找不到技能 ' + id);
+
+      const files = [];
+      if (body.entity) {
+        const doc = readJson(join(dir, found.rel), null);
+        if (!doc) throw new SafetyError('无法读取技能文件：' + found.rel);
+        const list = entitiesOf(doc);
+        list[found.index] = body.entity;
+        files.push({ rel: found.rel, content: JSON.stringify(doc, null, 2) });
+      }
+
+      if (body.locale) {
+        const locFound = (payload.locales.EN && payload.locales.EN.skill ? payload.locales.EN.skill : []).find((x) => String(x.key) === id);
+        if (locFound) {
+          const locDoc = readJson(join(dir, locFound.rel), null);
+          if (locDoc) {
+            if (Array.isArray(locDoc.list)) {
+              const idx = locDoc.list.findIndex((e) => String(e.id) === id);
+              if (idx >= 0) locDoc.list[idx] = body.locale;
+              else locDoc.list.push(body.locale);
+            } else {
+              locDoc[id] = body.locale;
+            }
+            files.push({ rel: locFound.rel, content: JSON.stringify(locDoc, null, 2) });
+          }
+        }
+      }
+
+      if (files.length) {
+        writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+        clearSkillCache(letheRoot);
+        clearUnitCache();
+      }
+      return { ok: true };
+    },
+
+    'POST /api/skill/update-identity': async (body) => {
+      const { letheRoot } = need();
+      const mod = cleanName(body.name, 'Mod 名称');
+      const oldId = String(body.oldId || '').trim();
+      const newId = String(body.newId || '').trim();
+      const newName = String(body.newName || '').trim();
+      const dir = modDirSafe(letheRoot, mod);
+      const payload = readModPayload(dir);
+      const found = (payload.data.skill || []).find((x) => String(x.id) === oldId);
+      if (!found) throw new SafetyError('在 Mod 里找不到技能 ' + oldId);
+
+      const changingId = newId && newId !== oldId;
+      if (changingId) {
+        if (!/^\d{3,10}$/.test(newId)) throw new SafetyError('技能 ID 必须是 3-10 位数字');
+        if (skillExistsAnywhere(letheRoot, newId)) throw new SafetyError(`技能 ID ${newId} 已被占用`);
+      }
+
+      const files = [];
+      const doc = readJson(join(dir, found.rel), null);
+      const list = entitiesOf(doc);
+      const ent = list[found.index];
+      if (changingId) ent.id = Number(newId);
+      files.push({ rel: found.rel, content: JSON.stringify(doc, null, 2) });
+
+      const locFound = (payload.locales.EN && payload.locales.EN.skill ? payload.locales.EN.skill : []).find((x) => String(x.key) === oldId);
+      if (locFound) {
+        const locDoc = readJson(join(dir, locFound.rel), null);
+        if (locDoc) {
+          let entry = Array.isArray(locDoc.list) ? locDoc.list.find((e) => String(e.id) === oldId) : locDoc[oldId];
+          if (entry) {
+            if (changingId) entry.id = newId;
+            if (newName && Array.isArray(entry.levelList) && entry.levelList[0]) {
+              entry.levelList[0].name = newName;
+            } else if (newName) {
+              entry.name = newName;
+            }
+          }
+          if (changingId && !Array.isArray(locDoc.list)) {
+            locDoc[newId] = locDoc[oldId];
+            delete locDoc[oldId];
+          }
+          files.push({ rel: locFound.rel, content: JSON.stringify(locDoc, null, 2) });
+        }
+      }
+
+      writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+      clearSkillCache(letheRoot);
+      clearUnitCache();
+      return { ok: true, id: changingId ? newId : oldId, name: newName };
+    },
+
     'POST /api/skill/create': (body) => {
       const { letheRoot } = need();
-      const created = createSkill(letheRoot, { name: body.name, id: body.id, displayName: body.displayName });
+      const created = createSkill(letheRoot, { name: body.name, id: body.id, displayName: body.displayName }); clearSkillCache(letheRoot); clearUnitCache();
       return { ok: true, skill: { id: created.id, entity: created.entity, locale: created.locale }, written: created.written };
     },
 
@@ -1085,7 +1239,7 @@ export function buildApi(ctx) {
       return {
         ok: true,
         passives: name ? listPassives(letheRoot, name) : [],
-        modules: listModules(letheRoot),
+        modules: listModulesWithCode(letheRoot),
         defaults: DEFAULT_PASSIVE_INFO,
       };
     },
@@ -1224,7 +1378,7 @@ export function buildApi(ctx) {
       return {
         ok: true,
         buffs: name ? listBuffs(letheRoot, name) : [],
-        modules: listModules(letheRoot),
+        modules: listModulesWithCode(letheRoot),
         defaults: DEFAULT_BUFF_INFO,
       };
     },
@@ -1476,6 +1630,8 @@ export function buildApi(ctx) {
         coin: body && body.coin,
         texts: (body && body.texts) || [],
       });
+      clearSkillCache(letheRoot);
+      clearUnitCache();
       return { ok: true, ...r };
     },
     'POST /api/script/slot': (body) => {
@@ -1522,6 +1678,24 @@ export function buildApi(ctx) {
       spawn('explorer.exe', [p], { detached: true, stdio: 'ignore' }).unref();
       return { ok: true };
     },
+  
+    'POST /api/dialog/folder': async () => {
+      const { spawn } = await import('node:child_process');
+      return new Promise((resolve) => {
+        const psScript = '[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = "请选择游戏根目录或 Lethe 私服目录"; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }';
+        const child = spawn('powershell.exe', ['-NoProfile', '-Command', psScript], { windowsHide: true });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d.toString(); });
+        child.on('close', () => {
+          const selected = out.trim();
+          resolve({ ok: true, path: selected || null });
+        });
+        child.on('error', () => {
+          resolve({ ok: false, path: null });
+        });
+      });
+    },
+
   };
 
   return createApi(api);
