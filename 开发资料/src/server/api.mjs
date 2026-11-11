@@ -5,7 +5,7 @@ import { ARG_COUNTS } from '../knowledge/arg-counts.mjs';
 import { dirname, join } from 'node:path';
 import { APP_ROOT, USER_DATA_DIR } from '../paths.mjs';
 import { configPath, rememberRoot, saveConfig } from '../config.mjs';
-import { SafetyError } from '../safety.mjs';
+import { SafetyError, cleanName } from '../safety.mjs';
 import { readJson, writeFilesTransactional } from '../atomic.mjs';
 import { locate, scanStats } from '../locate.mjs';
 import { entitiesOf, createMod, disableMod, dirOf, enableMod, listMods, modDir, modDirSafe, readModPayload, resolveModDir, saveModOrder, deleteModEverywhere } from '../lethe/mods.mjs';
@@ -776,6 +776,22 @@ export function buildApi(ctx) {
       }
 
       writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+
+      // 同步重命名立绘文件 (profile_<oldId>.* -> profile_<newId>.*, cg_<oldId>.* -> cg_<newId>.*)
+      const spritesDir = join(dir, 'custom_sprites');
+      if (fs.existsSync(spritesDir)) {
+        try {
+          const spriteFiles = fs.readdirSync(spritesDir);
+          for (const sf of spriteFiles) {
+            const m = sf.match(/^(profile|cg)_([^\.]+)\.([a-z0-9]+)$/i);
+            if (m && m[2] === oldId) {
+              const targetName = `${m[1]}_${newId}.${m[3]}`;
+              fs.renameSync(join(spritesDir, sf), join(spritesDir, targetName));
+            }
+          }
+        } catch (e) { /* 重命名图片失败不阻断主逻辑 */ }
+      }
+
       clearUnitCache();
       return { ok: true, id: newId };
     },
@@ -884,6 +900,8 @@ export function buildApi(ctx) {
         skill: {
           id: one.id,
           rel: one.rel,
+          entity: one.entity,
+          locale: one.locale,
           name,
           override: Boolean(one.override),
           hasLocale: Boolean(one.locale),
@@ -1073,6 +1091,65 @@ export function buildApi(ctx) {
       }
 
       writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+
+      if (changingId) {
+        // 1. 如果实体文件为独立文件 (形如 .../oldId.json)，重命名文件为 newId.json
+        try {
+          const oldEntPath = join(dir, found.rel);
+          if (fs.existsSync(oldEntPath) && found.rel.includes(oldId + '.json')) {
+            const newRel = found.rel.replace(oldId + '.json', newId + '.json');
+            const targetEntPath = join(dir, newRel);
+            if (fs.existsSync(targetEntPath) && targetEntPath !== oldEntPath) {
+              fs.unlinkSync(targetEntPath);
+            }
+            fs.renameSync(oldEntPath, targetEntPath);
+          }
+        } catch (e) { /* 重命名实体文件失败不中断 */ }
+
+        // 2. 如果 locale 文件为独立文件 (形如 .../oldId.json)，重命名为 newId.json
+        if (locFound) {
+          try {
+            const oldLocPath = join(dir, locFound.rel);
+            if (fs.existsSync(oldLocPath) && locFound.rel.includes(oldId + '.json')) {
+              const newLocRel = locFound.rel.replace(oldId + '.json', newId + '.json');
+              const targetLocPath = join(dir, newLocRel);
+              if (fs.existsSync(targetLocPath) && targetLocPath !== oldLocPath) {
+                fs.unlinkSync(targetLocPath);
+              }
+              fs.renameSync(oldLocPath, targetLocPath);
+            }
+          } catch (e) { /* 重命名语言文件失败不中断 */ }
+        }
+
+        // 3. 重命名 LCW/projects/skills/<mod>/<oldId>.json 与 .code.json
+        try {
+          const lcwSkillsDir = join(letheRoot, 'LCW', 'projects', 'skills', mod);
+          if (fs.existsSync(lcwSkillsDir)) {
+            const oldMeta = join(lcwSkillsDir, `${oldId}.json`);
+            const newMeta = join(lcwSkillsDir, `${newId}.json`);
+            if (fs.existsSync(oldMeta)) fs.renameSync(oldMeta, newMeta);
+            const oldCode = join(lcwSkillsDir, `${oldId}.code.json`);
+            const newCode = join(lcwSkillsDir, `${newId}.code.json`);
+            if (fs.existsSync(oldCode)) fs.renameSync(oldCode, newCode);
+          }
+        } catch (e) { /* 重命名 LCW 项目文件失败不中断 */ }
+
+        // 4. 重命名 custom_sprites 里的技能图标 (skill_<oldId>.* -> skill_<newId>.*)
+        const spritesDir = join(dir, 'custom_sprites');
+        if (fs.existsSync(spritesDir)) {
+          try {
+            const spriteFiles = fs.readdirSync(spritesDir);
+            for (const sf of spriteFiles) {
+              const m = sf.match(/^skill_([^\._]+)(.*)\.([a-z0-9]+)$/i);
+              if (m && m[1] === oldId) {
+                const targetName = `skill_${newId}${m[2]}.${m[3]}`;
+                fs.renameSync(join(spritesDir, sf), join(spritesDir, targetName));
+              }
+            }
+          } catch (e) { /* 重命名图标失败不阻断主逻辑 */ }
+        }
+      }
+
       clearSkillCache(letheRoot);
       clearUnitCache();
       return { ok: true, id: changingId ? newId : oldId, name: newName };
@@ -1113,9 +1190,68 @@ export function buildApi(ctx) {
     'POST /api/skill/code': (body) => {
       const { letheRoot } = need();
       const id = String(body.id);
-      const meta = readSkillMeta(letheRoot, body.name, id);
-      const change = writeSkillCode(letheRoot, body.name, id, { ...(body.code || {}), coinCount: (body.code && body.code.coins ? body.code.coins.length : meta.info.coinCount) });
-      const merged = readSkillMeta(letheRoot, body.name, id);
+      const mod = String(body.name || '');
+      const meta = readSkillMeta(letheRoot, mod, id);
+      const change = writeSkillCode(letheRoot, mod, id, { ...(body.code || {}), coinCount: (body.code && body.code.coins ? body.code.coins.length : meta.info.coinCount) });
+
+      // 同步检查实体文件的硬币颜色及内置脚本（SuperCoin/ExtractCoin），使置入区与实体保持一致
+      try {
+        const dir = modDirSafe(letheRoot, mod);
+        const payload = readModPayload(dir);
+        const found = (payload.data.skill || []).find((x) => String(x.id) === id);
+        if (found) {
+          const doc = readJson(join(dir, found.rel), null);
+          const list = entitiesOf(doc);
+          const ent = list[found.index];
+          const sd = ent && Array.isArray(ent.skillData) && ent.skillData[0];
+          if (sd && Array.isArray(sd.coinList)) {
+            const reqCoins = (body.code && Array.isArray(body.code.coins)) ? body.code.coins : [];
+            let entityModified = false;
+            for (let i = 0; i < sd.coinList.length; i++) {
+              const c = sd.coinList[i];
+              const rc = reqCoins[i];
+              if (!c || !rc) continue;
+              const colorUpper = String(rc.color || 'GOLD').toUpperCase();
+              const oldColor = String(c.color || 'GOLD').toUpperCase();
+              if (oldColor !== colorUpper) {
+                c.color = colorUpper;
+                entityModified = true;
+              }
+              if (rc.value != null && Number(c.scale) !== Number(rc.value)) {
+                c.scale = Number(rc.value) || 0;
+                entityModified = true;
+              }
+              let scripts = Array.isArray(c.abilityScriptList) ? c.abilityScriptList : [];
+              const hasSuper = scripts.some((s) => (s && s.scriptName) === 'SuperCoin');
+              const hasExtract = scripts.some((s) => (s && s.scriptName) === 'ExtractCoin');
+              let newScripts = scripts.filter((s) => {
+                const sn = s && s.scriptName;
+                return sn !== 'SuperCoin' && sn !== 'ExtractCoin';
+              });
+              if (colorUpper === 'GREY') {
+                // 红币：SuperCoin
+                newScripts = [{ scriptName: 'SuperCoin' }, ...newScripts];
+              } else if (colorUpper === 'GREEN') {
+                // 绿币：ExtractCoin
+                newScripts = [{ scriptName: 'ExtractCoin' }, ...newScripts];
+              }
+              const oldSig = scripts.map((s) => (s && s.scriptName) || '').join(',');
+              const newSig = newScripts.map((s) => (s && s.scriptName) || '').join(',');
+              if (oldSig !== newSig) {
+                c.abilityScriptList = newScripts;
+                entityModified = true;
+              }
+            }
+            if (entityModified) {
+              writeFilesTransactional({ modDir: dir, files: [{ rel: found.rel, content: JSON.stringify(doc, null, 2) + '\n' }], root: letheRoot, mod });
+              clearSkillCache(letheRoot);
+              clearUnitCache();
+            }
+          }
+        }
+      } catch (err) { /* 同步实体失败不中断 */ }
+
+      const merged = readSkillMeta(letheRoot, mod, id);
       return { ok: true, meta: merged, changed: change.before !== change.after };
     },
 
@@ -1147,12 +1283,7 @@ export function buildApi(ctx) {
 
     'GET /api/modules': () => {
       const { letheRoot } = need();
-      const mods = listModules(letheRoot).map((m) => {
-        let code = '';
-        try { const rows = compileProgram(m.program) || []; code = Array.isArray(rows) ? rows.join('\n') : String(rows || ''); } catch (e) { code = ''; }
-        return { ...m, code };
-      });
-      return { ok: true, modules: mods };
+      return { ok: true, modules: listModulesWithCode(letheRoot) };
     },
 
     'GET /api/module/usage': () => {
@@ -1201,6 +1332,8 @@ export function buildApi(ctx) {
         info: meta.info || {}, code: meta.code || {},
         description: meta.description, coinDescs: meta.coinDescs,
       });
+      clearSkillCache(letheRoot);
+      clearUnitCache();
       session.clear(body.name, 'skill:' + id);
       autosave.touch(body.name);
       log ? log('[wb] 技能已写回 ' + body.name + '/' + id + '（' + res.scripts + ' 个脚本）') : 0;

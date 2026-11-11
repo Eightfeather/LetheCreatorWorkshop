@@ -52,14 +52,19 @@ function writeBack(letheRoot, dir, mod, files) {
   return result;
 }
 
-const SPECIAL_COIN = { red: { color: 'RED', script: 'SuperCoin' }, green: { color: 'GREEN', script: 'ExtractCoin' }, purple: { color: 'PURPLE', script: null } };
+const SPECIAL_COIN = {
+  GREY: { color: 'GREY', script: 'SuperCoin' },
+  GREEN: { color: 'GREEN', script: 'ExtractCoin' },
+  PURPLE: { color: 'PURPLE', script: null },
+  GOLD: { color: 'GOLD', script: null },
+};
 
 function normalizeCoinColor(value) {
-  const c = String(value || '').toLowerCase();
-  if (c === 'red' || c === 'redcoin') return 'red';
-  if (c === 'green' || c === 'greencoin') return 'green';
-  if (c === 'purple') return 'purple';
-  return 'normal';
+  const c = String(value || '').toUpperCase();
+  if (c === 'RED' || c === 'GREY') return 'GREY';
+  if (c === 'GREEN') return 'GREEN';
+  if (c === 'PURPLE') return 'PURPLE';
+  return 'GOLD';
 }
 
 /**
@@ -92,14 +97,8 @@ export function saveSkillFields(letheRoot, { name, id, info = {} } = {}) {
   const n = Number(info.coinCount);
   if (Number.isFinite(n) && n >= 1 && n <= 12) {
     sd.coinList = Array.isArray(sd.coinList) ? sd.coinList : [];
-    if (n < sd.coinList.length) {
-      const dropped = sd.coinList.slice(n).reduce((acc, c) => acc + (((c || {}).abilityScriptList || []).length), 0);
-      if (dropped > 0) {
-        throw new SafetyError('把硬币数量减到 ' + n + ' 会丢掉第 ' + (n + 1) + '–' + sd.coinList.length + ' 枚硬币上的 ' + dropped + ' 条脚本；请先清空这些硬币的脚本，或保持硬币数量不变');
-      }
-    }
     while (sd.coinList.length < n) {
-      sd.coinList.push({ operatorType: op, color: 'GREY', scale: 3, prob: 0.5, abilityScriptList: [] });
+      sd.coinList.push({ operatorType: op, color: 'GOLD', scale: 3, prob: 0.5, abilityScriptList: [] });
     }
     if (sd.coinList.length > n) sd.coinList = sd.coinList.slice(0, n);
   }
@@ -126,7 +125,7 @@ export function saveSkillFields(letheRoot, { name, id, info = {} } = {}) {
   } };
 }
 
-export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displayName, tier, scripts, code, description, coinDescs } = {}) {
+export function saveCompiledSkill(letheRoot, { name, id, info = {}, displayName, tier, scripts, code, description, coinDescs } = {}) {
   const mod = String(name || '');
   const dir = modDirSafe(letheRoot, mod);
   const payload = readModPayload(dir);
@@ -164,7 +163,11 @@ export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displa
   if (!lines.length && missing.length) {
     throw new SafetyError('这些模块已经不存在：' + missing.join('、') + '（为避免把技能脚本清空，本次没有写入）');
   }
-  sd.abilityScriptList = lines.map((scriptName) => ({ scriptName }));
+  const existingSdScripts = Array.isArray(sd.abilityScriptList) ? sd.abilityScriptList : [];
+  const nonCompiled = existingSdScripts.filter((item) => !lines.includes(item && item.scriptName));
+  if (lines.length > 0) {
+    sd.abilityScriptList = [...nonCompiled, ...lines.map((scriptName) => ({ scriptName }))];
+  }
 
   const codeCoins = (code && Array.isArray(code.coins)) ? code.coins : [];
   const targetCount = info.coinCount != null ? Number(info.coinCount) : (codeCoins.length || (Array.isArray(sd.coinList) ? sd.coinList.length : 1));
@@ -172,7 +175,7 @@ export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displa
   const opType = info.sign === 'negative' ? 'SUB' : 'ADD';
 
   sd.coinList = Array.isArray(sd.coinList) ? sd.coinList : [];
-  while (sd.coinList.length < count) sd.coinList.push({ operatorType: opType, color: 'GREY', scale: 3, prob: 0.5, abilityScriptList: [] });
+  while (sd.coinList.length < count) sd.coinList.push({ operatorType: opType, color: 'GOLD', scale: 3, prob: 0.5, abilityScriptList: [] });
   while (sd.coinList.length > count) sd.coinList.pop();
 
   for (let i = 0; i < sd.coinList.length; i++) {
@@ -186,9 +189,13 @@ export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displa
     if (special) coin.color = special.color;
     const specialLines = special && special.script ? [special.script] : [];
     const coinLines = moduleScripts(letheRoot, src.modules || []).lines;
-    if (specialLines.length || coinLines.length) {
-      coin.abilityScriptList = [...specialLines, ...coinLines].map((scriptName) => ({ scriptName }));
-    }
+    const existing = Array.isArray(coin.abilityScriptList) ? coin.abilityScriptList : [];
+    const nonSpecial = existing.filter((item) => {
+      const name = item && item.scriptName;
+      return name !== "SuperCoin" && name !== "ExtractCoin";
+    });
+    const extraModules = coinLines.filter((l) => !nonSpecial.some((x) => x && x.scriptName === l)).map((l) => ({ scriptName: l }));
+    coin.abilityScriptList = [...specialLines.map((scriptName) => ({ scriptName })), ...nonSpecial, ...extraModules];
   }
 
   const files = [{ rel: found.rel, content: JSON.stringify(doc, null, 2) }];

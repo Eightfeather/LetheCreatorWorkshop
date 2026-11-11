@@ -59,13 +59,13 @@ export const SIN_TYPES = [
 ];
 /** 硬币颜色：数据里出现过的枚举是 GREY/GREEN/PURPLE，RED 为保留项（样本中未出现） */
 export const COIN_COLORS = [
-  { id: 'GREY', zh: '灰' },
+  { id: 'GOLD', zh: '普通（灰）' },
+  { id: 'GREY', zh: '红' },
   { id: 'GREEN', zh: '绿' },
   { id: 'PURPLE', zh: '紫' },
-  { id: 'RED', zh: '红' },
 ];
 /** 旧版本占位 id（normal/red/green/purple）→ 游戏枚举 的兼容映射 */
-const COIN_COLOR_ALIAS = { normal: 'GREY', grey: 'GREY', green: 'GREEN', purple: 'PURPLE', red: 'RED' };
+const COIN_COLOR_ALIAS = { normal: 'GOLD', gold: 'GOLD', grey: 'GREY', red: 'GREY', green: 'GREEN', purple: 'PURPLE' };
 
 /** 3 个测试模块：可拖动，无映射、无实际效果 */
 export const TEST_MODULES = [
@@ -133,13 +133,14 @@ function nowIso() { return new Date().toISOString(); }
 /** 硬币颜色归一：兼容旧占位 id（normal/red/green/purple）与游戏枚举（GREY/GREEN/PURPLE/RED） */
 export function coinColor(value) {
   const raw = String(value ?? '').trim();
+  if (!raw) return 'GOLD';
   const id = COIN_COLOR_ALIAS[raw] || COIN_COLOR_ALIAS[raw.toLowerCase()] || raw;
-  return COIN_COLORS.some((x) => x.id === id) ? id : 'GREY';
+  return COIN_COLORS.some((x) => x.id === id) ? id : 'GOLD';
 }
 
 function padCoins(coins, count) {
   const list = Array.isArray(coins) ? coins.slice(0, count) : [];
-  while (list.length < count) list.push({ color: 'GREY', value: 0, modules: [] });
+  while (list.length < count) list.push({ color: 'GOLD', value: 0, modules: [] });
   return list.map((c) => ({
     color: coinColor(c && c.color),
     value: Number(c && c.value) || 0,
@@ -204,7 +205,9 @@ export function writeSkillMeta(letheRoot, mod, id, patch = {}) {
     coinDescs: patch.coinDescs !== undefined ? patch.coinDescs : prev.coinDescs,
     updatedAt: patch.touch === false ? prev.updatedAt : nowIso(),
   }, id);
-  const after = JSON.stringify(next, null, 2);
+  const afterDoc = { ...next };
+  delete afterDoc.code;
+  const after = JSON.stringify(afterDoc, null, 2);
   mkdirSync(join(p, '..'), { recursive: true });
   writeFileAtomic(p, after);
   return { rel: null, abs: p, before, after, doc: next };
