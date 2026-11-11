@@ -1171,29 +1171,44 @@ function pTagSearch(list, kind) {
   </div>`;
 }
 
-/* 被动并入人格页（文档 17 第 6 条）：战斗被动 / 支援被动 · 同步等级 N，加入前用下拉切级别 */
-function pPassiveSection(st, resHtml) {
-  const groups = [
-    ...(((st.passives && st.passives.battle) || []).map((g) => ({ kind: 'battle', g }))),
-    ...(((st.passives && st.passives.supporter) || []).map((g) => ({ kind: 'supporter', g }))),
-  ];
+/* 被动并入人格页：上方战斗被动，下方支援被动，分两个搜索框与插槽，点击结果直接加入 */
+function pPassiveSection(st, resBattleHtml, resSupporterHtml) {
+  const battleGroups = (st.passives && st.passives.battle) || [];
+  const supporterGroups = (st.passives && st.passives.supporter) || [];
+
   const item = (id, kind, level) => `<span class="p-pid"><span>${esc(id)}</span>${pPassiveNameHtml(id)}
       <button class="icon-btn" data-act="p-jump-passive" data-id="${esc(id)}" title="打开被动编辑">🖊</button>
       <button class="icon-btn rm" data-act="p-passive-rm" data-kind="${kind}" data-level="${esc(level)}" data-id="${esc(id)}" title="移除">✕</button>
     </span>`;
-  const body = groups.length
-    ? `<div class="p-passive-groups">${groups.map(({ kind, g }) => `<div class="p-passive-group">
-        <b>${kind === 'battle' ? '战斗被动' : '支援被动'} · 同步等级 ${esc(g.level)}</b>
+
+  const renderGroupList = (groups, kind) => {
+    if (!groups.length) return '<div class="p-empty muted" style="margin:4px 0 8px;">还没有挂接此被动</div>';
+    return `<div class="p-passive-groups" style="margin:4px 0 8px;">${groups.map((g) => `<div class="p-passive-group">
+        <b>同步等级 ${esc(g.level)}</b>
         <div>${(g.ids || []).map((id) => item(id, kind, g.level)).join('') || '<span class="muted">（空）</span>'}</div>
-      </div>`).join('')}</div>`
-    : '<div class="p-empty muted">还没有挂接被动；用下面的搜索框添加</div>';
-  const kindSel = `<select id="p-passive-kind" title="被动类别"><option value="battle">战斗被动</option><option value="supporter">支援被动</option></select>`;
-  const lvlSel = '';
-  return pSection('被动', `${body}
-    <div class="p-search-wrap${S.pPassiveQ ? ' typing' : ''}"><div class="p-search-row">${pSearchBox('p-passive-q', '输入被动 id 或名称搜索', S.pPassiveQ)}</div>
-    <div class="p-res-list" id="p-passive-res">${resHtml || ''}</div></div>
-    <div class="p-add-row">${kindSel}${lvlSel}<button class="btn ghost sm" data-act="p-passive-add">＋ 加入</button></div>
-    <div class="hint muted">被动默认写入同步等级 4（私服默认全员同步 4）。</div>`);
+      </div>`).join('')}</div>`;
+  };
+
+  const battleHtml = `<div>
+    <div style="font-weight:600;margin-bottom:4px;color:var(--gold);">战斗被动</div>
+    <div class="p-search-wrap${S.pPassiveBattleQ ? ' typing' : ''}">
+      <div class="p-search-row">${pSearchBox('p-passive-battle-q', '搜索战斗被动并点击加入', S.pPassiveBattleQ)}</div>
+      <div class="p-res-list" id="p-passive-battle-res">${resBattleHtml || ''}</div>
+    </div>
+    ${renderGroupList(battleGroups, 'battle')}
+  </div>`;
+
+  const supporterHtml = `<div style="margin-top:12px;">
+    <div class="p-divider"><span>支援被动</span></div>
+    <div class="p-search-wrap${S.pPassiveSupporterQ ? ' typing' : ''}">
+      <div class="p-search-row">${pSearchBox('p-passive-supporter-q', '搜索支援被动并点击加入', S.pPassiveSupporterQ)}</div>
+      <div class="p-res-list" id="p-passive-supporter-res">${resSupporterHtml || ''}</div>
+    </div>
+    ${renderGroupList(supporterGroups, 'supporter')}
+  </div>`;
+
+  return pSection('被动', `${battleHtml}${supporterHtml}
+    <div class="hint muted" style="margin-top:8px;">被动默认写入同步等级 4（私服默认全员同步 4）。</div>`);
 }
 
 /* 查看源代码：整块替换式页面，显示两份原版文件（人格数据 / 被动挂接） */
@@ -1284,7 +1299,7 @@ function renderPersonalityDetail() {
     <aside class="p-portrait">
       <div class="pp-frame">${pPortraitHtml()}</div>
       <button class="btn ghost sm" data-act="p-portrait">编辑立绘</button>
-      <div class="pp-id" style="display:flex; align-items:center; justify-content:center; gap:4px;">${esc(p.id)}${vanilla ? ' · 原版' : `<button class="btn ghost xs" data-act="p-change-id" title="修改人格 ID">修改 ID</button>`}</div>
+      <div class="pp-id" style="display:flex; align-items:center; justify-content:center; gap:4px;">${esc(p.id)}${vanilla ? ' · 原版' : ''}</div>
       ${ro ? '<button class="btn primary sm" data-act="p-export-edit" data-id="' + esc(p.id) + '" title="导出到本 Mod 并编辑">导出到本 Mod 并编辑</button>' : ''}
     </aside>
     <div class="p-main${locked ? ' p-locked' : ''}${ro ? ' p-readonly' : ''}">
@@ -1302,7 +1317,7 @@ function renderPersonalityDetail() {
           ${pSinChip(e)}
           <span class="p-chip">防御修正值 ${esc(e.defCorrection ?? '—')}</span>
           <span class="p-chip">速度区间 ${esc(minSp === '' ? '—' : minSp)} ~ ${esc(maxSp === '' ? '—' : maxSp)}</span>
-          ${pResistChips(e)}
+          <span id="p-head-resists">${pResistChips(e)}</span>
         </div>
         <div class="ph-row ph-row3">
           ${pHeadBar(st)}
@@ -1321,8 +1336,12 @@ function renderPersonalityDetail() {
       ${locked ? '<div class="banner lock">🔒 该人格的源码已被手动修改并锁定：表单已锁定，只能通过「查看源代码」修改（删除人格可解除）。</div>' : ''}
 
       ${pSection('基础数值', `
-        ${pRow('人格名称', `<input data-field="locale.name" value="${esc(l.name ?? '')}" placeholder="必填">`)}
-        ${pRow('稀有度', rankPicker + `<select class="sr-only" data-field="entity.rank" tabindex="-1" aria-hidden="true">${rankList.map((r) => `<option value="${r}" ${Number(e.rank) === r ? 'selected' : ''}>${r}</option>`).join('')}</select>`)}
+        <div class="p-grid2">
+          ${pRow('人格名称', `<input data-field="locale.name" value="${esc(l.name ?? '')}" placeholder="必填">`)}
+          ${pRow('称号', `<input data-field="locale.title" value="${esc(l.title ?? '')}" placeholder="称号（如：黑云会若众）">`)}
+        </div>
+        ${pRow('人格 ID', `<input id="p-edit-id" value="${esc(p.id)}" ${vanilla || ro ? 'readonly' : ''} placeholder="4-10 位数字，保存时生效">`, vanilla ? '原版人格不可修改 ID' : '修改后点击保存即可生效')}
+        ${pRow('稀有度', rankPicker + `<input type="hidden" id="p-rank-val" data-field="entity.rank" value="${esc(e.rank ?? 1)}">`)}
         <div class="p-grid2">
           ${pRow('防御修正值', `<input type="text" inputmode="decimal" data-num="1" data-field="entity.defCorrection" value="${esc(e.defCorrection ?? '')}" placeholder="-999 ~ +999">`, '-999 ~ +999')}
           ${pRow('速度区间', `<span class="p-speed-pair"><input type="text" inputmode="decimal" data-num="1" step="1" data-field="entity.speedMin" value="${esc(minSp)}" placeholder="最小"><span class="p-speed-tilde">~</span><input type="text" inputmode="decimal" data-num="1" step="1" data-field="entity.speedMax" value="${esc(maxSp)}" placeholder="最大"></span>`)}
@@ -1342,7 +1361,11 @@ function renderPersonalityDetail() {
 
       ${pSection('物理抗性', ATK_LIST.map((k) => {
         const hit = ((e.resistInfo && e.resistInfo.atkResistList) || []).find((r) => r && r.type === k);
-        return pRow(ATK_ZH[k], `<input type="text" inputmode="decimal" data-num="1" step="0.05" min="0" max="10" data-field="entity.resist.${k}" value="${esc(hit ? hit.value : '')}" placeholder="倍率">`);
+        const v = hit ? hit.value : '';
+        const lbl = pResistLabel(v);
+        const cls = pResistClass(v);
+        const badge = lbl ? `<span class="p-res ${cls}" data-resist-badge="${k}" style="margin-left:8px;font-size:11px;">${lbl}</span>` : `<span class="p-res" data-resist-badge="${k}" style="margin-left:8px;font-size:11px;display:none;"></span>`;
+        return pRow(ATK_ZH[k] + badge, `<input type="text" inputmode="decimal" data-num="1" step="0.05" min="0" max="10" data-field="entity.resist.${k}" value="${esc(hit ? hit.value : '')}" placeholder="倍率">`);
       }).join(''))}
 
       ${pSection('技能', `<div class="p-search-wrap${S.pSkillQ ? ' typing' : ''}"><div class="p-search-row">${pSearchBox('p-skill-q', '输入技能 id 或名称搜索（原版 + 全部 Mod）', S.pSkillQ)}</div>
@@ -1353,7 +1376,7 @@ function renderPersonalityDetail() {
         <div class="p-res-list" id="p-def-res">${results('def')}</div></div>
         ${pDefRows(e)}`)}
 
-      ${pPassiveSection(st, results('passive'))}
+      ${pPassiveSection(st, results('passive_battle'), results('passive_supporter'))}
 
       ${pSection('上场初始 Buff', `<div class="p-search-wrap${S.pBuffQ ? ' typing' : ''}"><div class="p-search-row">${pSearchBox('p-buff-q', '输入 buff id 搜索（原版 + 全部 Mod）', S.pBuffQ)}</div>
         <div class="p-res-list" id="p-buff-res">${results('buff')}</div></div>
@@ -1521,8 +1544,8 @@ const pSearchTimers = {};function pSearchUnits(kind, q) {
   pSearchTimers[kind] = setTimeout(async () => {
     if (!q) { S.pSearch = { ...(S.pSearch || {}), [kind]: [] }; pRefreshRes(kind); return; }
     try {
-      const map = { skill: 'skill', def: 'skill', buff: 'buff', passive: 'passive' };
-      const res = await api(`/api/unit-search?kind=${map[kind]}&q=${encodeURIComponent(q)}&limit=8`);
+      const map = { skill: 'skill', def: 'skill', buff: 'buff', passive: 'passive', passive_battle: 'passive', passive_supporter: 'passive' };
+      const res = await api(`/api/unit-search?kind=${map[kind] || 'passive'}&q=${encodeURIComponent(q)}&limit=8`);
       S.pSearch = { ...(S.pSearch || {}), [kind]: res.results || res.rows || [] };
       pRefreshRes(kind);
     } catch (err) { toast(err.message, 'error'); }
@@ -1537,7 +1560,8 @@ function pResHtml(kind) {
 }
 
 function pRefreshRes(kind) {
-  const box = document.getElementById(`p-${kind}-res`);
+  const boxId = kind === 'passive_battle' ? 'p-passive-battle-res' : (kind === 'passive_supporter' ? 'p-passive-supporter-res' : `p-${kind}-res`);
+  const box = document.getElementById(boxId);
   if (box) box.innerHTML = pResHtml(kind);
 }
 /* -------------------------------- 编辑写入 -------------------------------- */
@@ -1628,6 +1652,12 @@ async function flushPatch() {
     if (undoBtn) undoBtn.disabled = !(Number(S.session?.undo) > 0);
     if (redoBtn) redoBtn.disabled = !(Number(S.session?.redo) > 0);
     if (!res.changed) return;
+    if (patch.entity) {
+      S.personality.entity = { ...(S.personality.entity || {}), ...patch.entity };
+      const hr = document.getElementById('p-head-resists');
+      if (hr) hr.innerHTML = pResistChips(S.personality.entity);
+    }
+    if (patch.locale) S.personality.locale = { ...(S.personality.locale || {}), ...patch.locale };
   } finally { patching = false; }
 }
 
@@ -1857,7 +1887,28 @@ const actions = {
     } catch (e) { toast(e.message, 'error'); }
   },
   'p-edit-passives': () => actions['open-kind']({ dataset: { kind: 'passive' } }),
-  'p-pick-passive': (el) => { S.pPassiveQ = el.dataset.id; pSearchUnits('passive', el.dataset.id); toast('已选中 ' + el.dataset.id + '，点「＋ 加入」写入', 'ok'); },
+  'p-pick-passive_battle': async (el) => {
+    const pid = String(el.dataset.id || '').trim();
+    if (!pid || !S.personality) return;
+    const level = 4;
+    try {
+      await api('/api/personality/passive', { method: 'POST', body: { name: S.selected, id: S.personality.id, kind: 'battle', op: 'add', passiveId: pid, level } });
+      S.pPassiveBattleQ = '';
+      S.pSearch = { ...(S.pSearch || {}), passive_battle: [] };
+      await loadPersonality(S.selected, S.personality.id); render(); toast(`已加入战斗被动 · 同步等级 ${level}`, 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  },
+  'p-pick-passive_supporter': async (el) => {
+    const pid = String(el.dataset.id || '').trim();
+    if (!pid || !S.personality) return;
+    const level = 4;
+    try {
+      await api('/api/personality/passive', { method: 'POST', body: { name: S.selected, id: S.personality.id, kind: 'supporter', op: 'add', passiveId: pid, level } });
+      S.pPassiveSupporterQ = '';
+      S.pSearch = { ...(S.pSearch || {}), passive_supporter: [] };
+      await loadPersonality(S.selected, S.personality.id); render(); toast(`已加入支援被动 · 同步等级 ${level}`, 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  },
   'p-app-use': async (el) => {
     await pPatch({ entity: { appearance: el.dataset.app } });
     closeModal();
@@ -2260,6 +2311,8 @@ const actions = {
   },
   'p-rank-set': async (el) => {
     const rank = Number(el.dataset.rank) || 1;
+    const hid = document.getElementById('p-rank-val');
+    if (hid) hid.value = rank;
     await pPatch({ entity: { rank } });
     render();
   },
@@ -2394,6 +2447,58 @@ const actions = {
       toast(e.message, 'error');
     }
   },
+  'p-change-id': () => {
+    const p = S.personality;
+    if (!p) return;
+    const curId = String(p.id);
+    modal({
+      title: `修改人格 ID #${curId}`,
+      body: `
+        <label class="field"><span>新人格 ID（4-10 位数字）</span><input id="edit-p-new-id" value="${esc(curId)}" autocomplete="off"><span class="p-hint" id="edit-p-new-hint"></span></label>
+        <div class="hint muted">修改人格 ID 将同步更新 Mod 数据文件与语言包，并自动切换当前编辑的人格。</div>`,
+      footer: `<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="submit-p-change-id" data-old-id="${esc(curId)}">确认修改</button>`,
+    });
+    setTimeout(() => {
+      const inp = $('#edit-p-new-id');
+      if (inp) {
+        inp.focus();
+        inp.addEventListener('input', () => {
+          const v = inp.value.trim();
+          const hint = $('#edit-p-new-hint');
+          if (!hint) return;
+          if (v && Number(v) > 2147483647) {
+            hint.textContent = '⚠️ 警告：超过 32 位整型上限 (2147483647)！';
+            hint.className = 'p-hint bad';
+          } else if (v && !/^\d{4,10}$/.test(v)) {
+            hint.textContent = 'ID 必须为 4-10 位数字';
+            hint.className = 'p-hint bad';
+          } else {
+            hint.textContent = '';
+            hint.className = 'p-hint';
+          }
+        });
+      }
+    }, 30);
+  },
+  'submit-p-change-id': async (el) => {
+    const oldId = el.dataset.oldId;
+    const newId = $('#edit-p-new-id')?.value?.trim();
+    if (!newId) { toast('请填写人格 ID', 'warn'); return; }
+    if (!/^\d{4,10}$/.test(newId)) { toast('人格 ID 必须是 4-10 位数字', 'warn'); return; }
+    if (Number(newId) > 2147483647) {
+      if (!confirm('ID 已超过 2147483647 (INT32 上限)，确认继续？')) return;
+    }
+    try {
+      await api('/api/personality/update-id', { method: 'POST', body: { name: S.selected, oldId, newId } });
+      closeModal();
+      toast('人格 ID 已成功修改为 ' + newId, 'ok');
+      await loadPersonalities(S.selected);
+      await loadPersonality(S.selected, newId);
+      render();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  },
   'p-edit-skill-identity': (el) => {
     const curId = el.dataset.id;
     const curName = el.dataset.name;
@@ -2438,6 +2543,54 @@ const actions = {
     } catch (e) { toast(e.message, 'error'); }
   },
   'open-skill': (el) => openSkill(el.dataset.id),
+  'del-coin': (el) => {
+    const i = Number(el.dataset.coin);
+    if (!Number.isInteger(i) || !S.skill) return;
+    const curCoins = (S.skill.code && S.skill.code.coins) || [];
+    if (i < 0 || i >= curCoins.length) return;
+    modal({
+      title: '删除硬币',
+      body: '<p>确定要删除<strong>硬币 ' + (i + 1) + '</strong> 吗？</p><p class="muted">该硬币上的脚本与配置也将一并移除。</p>',
+      footer: '<button class="btn ghost" data-act="close-modal">取消</button><button class="btn warn" data-act="confirm-del-coin" data-coin="' + i + '">确认删除</button>',
+    });
+  },
+  'confirm-del-coin': async (el) => {
+    closeModal();
+    const i = Number(el.dataset.coin);
+    if (!Number.isInteger(i) || !S.skill) return;
+    const coins = (S.skill.code && S.skill.code.coins) ? [...S.skill.code.coins] : [];
+    if (i < 0 || i >= coins.length) return;
+    coins.splice(i, 1);
+    const newCount = coins.length;
+    S.skill.code = { ...(S.skill.code || {}), coins };
+    S.skill.info = { ...(S.skill.info || {}), coinCount: newCount };
+    if (Array.isArray(S.skill.slots)) {
+      S.skill.slots = S.skill.slots
+        .filter((s) => !(s.where === 'coin' && Number(s.coin) === i))
+        .map((s) => {
+          if (s.where === 'coin' && Number(s.coin) > i) {
+            return { ...s, coin: Number(s.coin) - 1 };
+          }
+          return s;
+        });
+    }
+    await api('/api/skill/state', { method: 'POST', body: { name: S.selected, id: S.skillId, info: S.skill.info } });
+    await saveCode();
+    toast('已删除硬币 ' + (i + 1), 'ok');
+  },
+  'add-coin': async () => {
+    if (!S.skill) return;
+    const coins = (S.skill.code && S.skill.code.coins) ? [...S.skill.code.coins] : [];
+    const allInpVal = Number(document.getElementById('sk-all-coin-power')?.value);
+    const defCoinVal = Number.isFinite(allInpVal) ? allInpVal : (coins[0]?.value ?? 0);
+    coins.push({ color: 'GOLD', value: Number(defCoinVal) || 0, modules: [] });
+    const newCount = coins.length;
+    S.skill.code = { ...(S.skill.code || {}), coins };
+    S.skill.info = { ...(S.skill.info || {}), coinCount: newCount };
+    await api('/api/skill/state', { method: 'POST', body: { name: S.selected, id: S.skillId, info: S.skill.info } });
+    await saveCode();
+    toast('已添加硬币 ' + newCount, 'ok');
+  },
   'skill-tab': (el) => { S.skillTab = el.dataset.tab; render(); },
   'new-skill': () => openCreateSkill(),
   'import-skill': () => openImportSkill(),
@@ -2941,11 +3094,31 @@ document.addEventListener('input', (e) => {
   }
   if (t.id === 'p-app-q') { S.pAppQ = t.value; render(); refocus('p-app-q', t.value.length); return; }
   if (t.closest('#personality-form')) {
+    if (t.dataset && t.dataset.field && t.dataset.field.startsWith('entity.resist.')) {
+      const k = t.dataset.field.slice('entity.resist.'.length);
+      const v = t.value.trim();
+      const lbl = pResistLabel(v);
+      const cls = pResistClass(v);
+      const badge = document.querySelector(`[data-resist-badge="${k}"]`);
+      if (badge) {
+        if (lbl) {
+          badge.textContent = lbl;
+          badge.className = 'p-res ' + cls;
+          badge.style.display = '';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+      schedulePatch();
+      return;
+    }
     if (t.dataset && t.dataset.num) return;
     if (t.dataset && (t.dataset.skillNum !== undefined || t.dataset.break !== undefined || t.dataset.buffStack !== undefined || t.dataset.buffTurn !== undefined)) return;
     if (t.id === 'p-skill-q') { S.pSkillQ = t.value; pSearchUnits('skill', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
     if (t.id === 'p-def-q') { S.pDefQ = t.value; pSearchUnits('def', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
     if (t.id === 'p-buff-q') { S.pBuffQ = t.value; pSearchUnits('buff', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
+    if (t.id === 'p-passive-battle-q') { S.pPassiveBattleQ = t.value; pSearchUnits('passive_battle', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
+    if (t.id === 'p-passive-supporter-q') { S.pPassiveSupporterQ = t.value; pSearchUnits('passive_supporter', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
     if (t.id === 'p-passive-q') { S.pPassiveQ = t.value; pSearchUnits('passive', t.value); const w = t.closest('.p-search-wrap'); if (w) w.classList.add('typing'); return; }
     if (t.dataset && t.dataset.tagq) {
       S.pTagQ = { ...(S.pTagQ || {}), [t.dataset.tagq]: t.value };
@@ -3047,8 +3220,24 @@ document.addEventListener('change', (e) => {
     const i = Number(t.dataset.coin);
     const c = (S.skill?.code?.coins || [])[i];
     if (!c) return;
-    if (t.dataset.key === 'value') c.value = Number(t.value) || 0;
+    if (t.dataset.key === 'value') {
+      c.value = Number(t.value) || 0;
+      const allInput = document.getElementById('sk-all-coin-power');
+      if (allInput) {
+        const coins = S.skill?.code?.coins || [];
+        const fv = coins.length > 0 ? Number(coins[0].value ?? 0) : null;
+        const same = coins.length > 0 && coins.every(x => Number(x.value ?? 0) === fv);
+        allInput.value = (same && fv !== null) ? fv : '';
+      }
+    }
     if (t.dataset.key === 'color') c.color = t.value;
+    saveCode().catch((err) => toast(err.message, 'error'));
+  }
+  if (t.id === 'sk-all-coin-power') {
+    const v = Number(t.value);
+    if (!Number.isFinite(v)) return;
+    const coins = (S.skill?.code?.coins || []);
+    coins.forEach(c => { c.value = v; });
     saveCode().catch((err) => toast(err.message, 'error'));
   }
 });
@@ -3267,8 +3456,9 @@ function pNormalizeSkill(sk) {
   }
   const total = Number(out.coinTotal || 0);
   if (out.code && Array.isArray(out.code.coins) && total > 0) {
+    const defVal = Number(out.code.coins[0]?.value) || 0;
     const coins = out.code.coins.slice(0, total).map((c) => ({ ...c }));
-    while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
+    while (coins.length < total) coins.push({ color: 'GREY', value: defVal, modules: [] });
     out.code = { ...out.code, coins };
   }
   if (out.info && total > 0) out.info.coinCount = total;
@@ -3402,14 +3592,32 @@ function renderSkillPreview(sk) {
 }
 function renderSkillInfoList(sk) {
   const info = sk.info || {};
+  const code = sk.code || {};
+  const coins = code.coins || [];
+  const firstVal = coins.length > 0 ? Number(coins[0].value ?? 0) : null;
+  const allSame = coins.length > 0 && coins.every(c => Number(c.value ?? 0) === firstVal);
+  const coinPowerVal = allSame && firstVal !== null ? firstVal : '';
+
   const rowText = (label, key) => "<div class=\"sk-row\"><span class=\"sk-row-l\">" + label + "</span>"
     + "<input class=\"sk-row-v\" type=\"text\" inputmode=\"decimal\" data-num=\"1\" data-info=\"" + key + "\" value=\"" + esc(info[key] == null ? "" : info[key]) + "\"></div>";
+  const rowTextReadonly = (label, key) => "<div class=\"sk-row\"><span class=\"sk-row-l\">" + label + "</span>"
+    + "<input class=\"sk-row-v\" type=\"text\" readonly data-num=\"1\" data-info=\"" + key + "\" value=\"" + esc(info[key] == null ? "" : info[key]) + "\"></div>";
   const rowSel = (label, key, arr) => "<div class=\"sk-row\"><span class=\"sk-row-l\">" + label + "</span>"
     + "<select class=\"sk-row-v\" data-info=\"" + key + "\">" + (arr || []).map((x) => "<option value=\"" + esc(x.id) + "\"" + (String(x.id) === String(info[key]) ? " selected" : "") + ">" + esc(x.zh || x.id) + "</option>").join("") + "</select></div>";
+
+  const rowIdentityId = "<div class=\"sk-row\"><span class=\"sk-row-l\">技能 ID</span>"
+    + "<input class=\"sk-row-v\" id=\"sk-info-id\" value=\"" + esc(sk.id) + "\" placeholder=\"技能 ID (保存生效)\"></div>";
+  const rowIdentityName = "<div class=\"sk-row\"><span class=\"sk-row-l\">技能名称</span>"
+    + "<input class=\"sk-row-v\" id=\"sk-info-name\" value=\"" + esc(sk.name || '') + "\" placeholder=\"技能名称 (保存生效)\"></div>";
+
+  const rowCoinPower = "<div class=\"sk-row\"><span class=\"sk-row-l\">硬币威力</span>"
+    + "<input class=\"sk-row-v\" type=\"text\" inputmode=\"decimal\" id=\"sk-all-coin-power\" placeholder=\"若各硬币不同则为空\" value=\"" + esc(coinPowerVal) + "\"></div>";
+
   return "<div class=\"info-card skill-info\"><div class=\"col-title\">基础信息</div>"
     + "<div class=\"hint muted\" style=\"margin:-2px 0 8px\">数值直接取自技能文件；改动写回技能文件并记入撤销历史。</div>"
     + "<div class=\"sk-list\">"
-    + rowText("基础威力", "basePower") + rowText("硬币数量", "coinCount")
+    + rowIdentityId + rowIdentityName
+    + rowText("基础威力", "basePower") + rowTextReadonly("硬币数量", "coinCount") + rowCoinPower
     + rowText("攻击修正值", "atkCorrection") + rowText("攻击容量", "targetNum")
     + rowSel("物理属性", "physical", (S.keywords && S.keywords.physical) || [])
     + rowSel("罪孽属性", "sin", (S.keywords && S.keywords.sin) || [])
@@ -3485,8 +3693,9 @@ function renderSkillMain() {
     + '<div class="skill-side">' + renderSkillPreview(sk) + renderSkillInfoList(sk) + '</div>'
     + '<div class="editor-card"><div class="tabs">'
     + '<button class="tab ' + (S.skillTab === 'code' ? 'active' : '') + '" data-act="skill-tab" data-tab="code">代码</button>'
-    + '<button class="tab ' + (S.skillTab === 'desc' ? 'active' : '') + '" data-act="skill-tab" data-tab="desc">描述</button></div>'
-    + (S.skillTab === 'desc' ? renderSkillDesc(sk) : renderSkillCode(code))
+    + '<button class="tab ' + (S.skillTab === 'desc' ? 'active' : '') + '" data-act="skill-tab" data-tab="desc">描述</button>'
+    + '<button class="tab ' + (S.skillTab === 'json' ? 'active' : '') + '" data-act="skill-tab" data-tab="json">原始 JSON</button></div>'
+    + (S.skillTab === 'desc' ? renderSkillDesc(sk) : (S.skillTab === 'json' ? renderSkillJsonView(sk) : renderSkillCode(code)))
     + '</div></div></section>';
 }
 
@@ -3529,11 +3738,12 @@ async function saveSlots(kind, zone, coin) {
   const doc = kind === 'skill' ? S.skill : (kind === 'passive' ? S.passive : S.buff);
   if (!doc) return;
   const where = zone === 'coin' ? 'coin' : (zone === 'skill' ? 'skill' : 'main');
+  const coinIdx = zone === 'coin' ? Number(coin) : -1;
   const texts = slotsOfZone(kind, zone, coin).map((s) => String(s.text || ''));
-  await api('/api/script/slots', { method: 'POST', body: { name: S.selected, kind, id: doc.id, where, coin: Number(coin) || -1, texts } });
-  if (kind === 'skill') await reloadSkill();
-  else if (kind === 'passive') await reloadPassive();
-  else await reloadBuff();
+  await api('/api/script/slots', { method: 'POST', body: { name: S.selected, kind, id: doc.id, where, coin: coinIdx, texts } });
+  if (kind === 'skill') { await reloadSkill(); render(); }
+  else if (kind === 'passive') { await reloadPassive(); render(); }
+  else { await reloadBuff(); render(); }
 }
 
 async function addSlotFromModule(kind, zone, coin, mid) {
@@ -3625,12 +3835,15 @@ function renderSkillCode(code) {
   const coins = (code.coins || []).map((c, i) => '<div class="coin-card"><div class="coin-head"><i class="coin-ico c-' + coinClassOf(c.color) + '" title="硬币颜色"></i><strong>硬币 ' + (i + 1) + '</strong>'
     + '<select data-coin="' + i + '" data-key="color">'
     + colors.map((x) => '<option value="' + esc(x.id) + '"' + (String(c.color) === String(x.id) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('')
-    + '</select><label class="inline-field">变动值 <input type="text" inputmode="decimal" data-num="1" data-coin="' + i + '" data-key="value" value="' + esc(c.value ?? 0) + '"></label></div>'
+    + '</select><label class="inline-field">变动值 <input type="text" inputmode="decimal" data-num="1" data-coin="' + i + '" data-key="value" value="' + esc(c.value ?? 0) + '"></label>'
+    + '<button class="coin-del-btn" data-act="del-coin" data-coin="' + i + '" title="删除此硬币" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 4px;line-height:1;">×</button></div>'
     + '<div class="drop-zone slot-stack" data-drop="coin" data-index="' + i + '" data-coin="' + i + '">' + slotStackHtml('skill', 'coin', i) + '</div></div>').join('');
 
+  const addBtn = '<button class="btn ghost coin-add-btn" data-act="add-coin" style="width:100%;margin-top:8px;border:1px dashed var(--line);padding:8px 0;display:block;">＋ 添加硬币</button>';
+
   return '<div class="code-wrap"><div class="code-col"><div class="col-title">技能置入区</div>' + skillZone + '</div>'
-    + '<div class="coin-col"><div class="col-title">硬币置入区 <span class="muted">（数量由「硬币数量」决定）</span></div>'
-    + (coins || '<div class="list-empty">硬币数量至少为 1</div>') + '</div></div>'
+    + '<div class="coin-col"><div class="col-title">硬币置入区</div>'
+    + (coins || '<div class="list-empty">暂无硬币</div>') + addBtn + '</div></div>'
     + '<div class="hint muted">从右侧模块列表拖入；未识别模块会原样保留，🖊 可临时用积木编辑（只改这一处）。</div>';
 }
 
@@ -3662,9 +3875,11 @@ function coinDescOf(sk, i) {
   return typeof arr[i] === 'string' ? arr[i] : '';
 }
 function coinClassOf(v) {
-  const k = String(v || 'GREY').toUpperCase();
-  if (k === 'RED' || k === 'GREEN' || k === 'PURPLE' || k === 'GREY') return k;
+  const k = String(v || 'GOLD').toUpperCase();
+  if (k === 'GREY' || k === 'RED') return 'RED';
   if (k === 'GOLD' || k === 'NORMAL' || k === '') return 'GREY';
+  if (k === 'GREEN') return 'GREEN';
+  if (k === 'PURPLE') return 'PURPLE';
   return 'GREY';
 }
 function coinDescCount(sk) {
@@ -3709,17 +3924,12 @@ function renderSkillJsonView(sk) {
     locale: sk.rawLocale || sk.locale || {},
   };
   const jsonStr = JSON.stringify(rawObj, null, 2);
-  return `<div class="editor-card" style="display:flex; flex-direction:column; height: 100%; min-height: 550px;">
-    <div class="tabs" style="margin-bottom:8px;">
-      <button class="tab" data-act="skill-tab" data-tab="code">代码（积木）</button>
-      <button class="tab" data-act="skill-tab" data-tab="desc">描述</button>
-      <button class="tab active" data-act="skill-tab" data-tab="json">原始 JSON 源码</button>
-    </div>
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+  return `<div class="skill-raw-json-card" style="display:flex; flex-direction:column; height: 100%;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
       <span class="muted" style="font-size:12px;">直接编辑底层实体与本地化 JSON 结构，方便查错与排障</span>
       <button class="btn primary sm" data-act="save-skill-json">保存原始 JSON</button>
     </div>
-    <textarea id="skill-raw-json-editor" class="ps-text" spellcheck="false" wrap="off" style="flex:1; min-height: 480px; font-family: monospace; background:#141110; color:#e0d2b4; border:1px solid var(--line); border-radius:6px; padding:10px;">${esc(jsonStr)}</textarea>
+    <textarea id="skill-raw-json-editor" class="ps-text" spellcheck="false" wrap="off" style="flex:1; width:100%; min-height: 520px; font-family: monospace; background:#141110; color:#e0d2b4; border:1px solid var(--line); border-radius:6px; padding:10px;">${esc(jsonStr)}</textarea>
   </div>`;
 }
 
@@ -3844,8 +4054,10 @@ async function flushInfo() {
   const res = await api('/api/skill/state', { method: 'POST', body: { name: S.selected, id: S.skillId, info } });
   S.skill = { ...S.skill, info: res.info, infoSource: 'file', skillTier: Number(res.info.skillTier) || S.skill.skillTier };
   const total = Number(res.info.coinCount) || before;
+  const allInpVal = Number(document.getElementById('sk-all-coin-power')?.value);
+  const defCoinVal = Number.isFinite(allInpVal) ? allInpVal : (S.skill.code?.coins?.[0]?.value ?? 0);
   const coins = (S.skill.code?.coins || []).slice(0, total).map((c) => ({ ...c }));
-  while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
+  while (coins.length < total) coins.push({ color: 'GREY', value: Number(defCoinVal) || 0, modules: [] });
   S.skill = { ...S.skill, code: { ...(S.skill.code || {}), coins } };
   S.session = res.session;
   updateSkillDom();
@@ -3967,6 +4179,14 @@ async function saveCurrent() {
   }
   if (!S.personality) return;
   await flushPatch();
+  const editIdInp = document.getElementById('p-edit-id');
+  const newPid = editIdInp ? editIdInp.value.trim() : '';
+  if (newPid && newPid !== String(S.personalityId)) {
+    if (!/^\d{4,10}$/.test(newPid)) { toast('人格 ID 必须是 4-10 位数字', 'warn'); return; }
+    if (Number(newPid) > 2147483647) { toast('人格 ID 不能超过 2147483647 (INT32 上限)', 'warn'); return; }
+    await api('/api/personality/update-id', { method: 'POST', body: { name: S.selected, oldId: S.personalityId, newId: newPid } });
+    S.personalityId = newPid;
+  }
   const res = await api('/api/personality/save', { method: 'POST', body: { name: S.selected, id: S.personalityId } });
   S.session = res.session;
   S.pReadonly = false;
@@ -3977,11 +4197,19 @@ async function saveCurrent() {
 }
 
 async function commitSkill() {
+  const newSid = document.getElementById('sk-info-id')?.value?.trim();
+  const newSname = document.getElementById('sk-info-name')?.value?.trim();
+  if (newSid && (newSid !== String(S.skillId) || (newSname !== undefined && newSname !== String(S.skill?.name || '')))) {
+    if (Number(newSid) > 2147483647) { toast('技能 ID 超过 2147483647 (INT32 上限)', 'warn'); return; }
+    await api('/api/skill/update-identity', { method: 'POST', body: { name: S.selected, oldId: S.skillId, newId: newSid, newName: newSname } });
+    S.skillId = newSid;
+  }
   const res = await api('/api/skill/save', { method: 'POST', body: { name: S.selected, id: S.skillId } });
   S.session = res.session;
-  const applied = await api('/api/skill/apply', { method: 'POST', body: { name: S.selected, id: S.skillId } });
+  const applied = await api('/api/skill/apply', { method: 'POST', body: { name: S.selected, id: S.skillId, displayName: newSname } });
   toast('已保存并写入游戏文件（' + (applied.applied || 0) + ' 条脚本' + ((applied.missing || []).length ? '，缺 ' + applied.missing.length + ' 个模块' : '') + '）', 'ok');
-  render();
+  await loadSkillList(S.selected);
+  await openSkill(S.skillId);
 }
 
 function collectUnknown() {
@@ -7853,19 +8081,65 @@ window.addEventListener('scroll', (ev) => {
 /* ================= 模块编辑：搜索浮层 ================= */
 function mbResPool() {
   const out = [];
-  const timings = (S.keywords && S.keywords.timings) || [];
-  for (const t of timings) {
-    if (!scopeAllowsTiming(t.en)) continue;
-    out.push({ kind: 'timing', val: t.en, label: t.zh ? t.zh + ' · ' + t.en : t.en, sub: '时点' });
+  const cat = S.mb?.cat;
+
+  if (!cat || cat === 'timing') {
+    const timings = (S.keywords && S.keywords.timings) || [];
+    for (const t of timings) {
+      if (!scopeAllowsTiming(t.en)) continue;
+      out.push({ kind: 'timing', val: t.en, label: t.zh ? t.zh + ' · ' + t.en : t.en, sub: '时点' });
+    }
   }
+
   const rows = (kind, list, sub) => {
     for (const r of list || []) {
       if (kind !== 'loop' && !scopeAllowsCommand(r.name)) continue;
       out.push({ kind, val: r.name, label: (r.zh || r.name) + (r.summary ? ' — ' + r.summary : ''), sub });
     }
   };
-  rows('cons', mbRows('consequence'), '效果');
-  rows('acq', mbRows('acquirer'), '获取');
+
+  if (!cat || cat === 'action') {
+    rows('cons', mbRows('consequence'), '效果');
+  }
+
+  if (!cat || cat === 'acq') {
+    rows('acq', mbRows('acquirer'), '获取');
+  }
+
+  if (cat === 'target') {
+    for (const t of MB_TARGETS || []) {
+      out.push({ kind: 'target', val: t.n, label: (t.zh ? t.zh + ' · ' : '') + t.n, sub: '目标' });
+    }
+  }
+
+  if (cat === 'var') {
+    for (const v of MB_VARS || []) {
+      out.push({ kind: 'var', val: v, label: v, sub: '变量' });
+    }
+  }
+
+  if (cat === 'buff') {
+    const seen = new Set();
+    const addBuff = (id, zh, native, sub) => {
+      const key = String(id || '');
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      const name = zh || native || key;
+      out.push({ kind: 's', val: key, label: name + ' (' + key + ')', sub: sub || 'Buff' });
+    };
+    for (const grp of S.keywords?.modBuffs || []) {
+      for (const id of grp.ids || []) {
+        addBuff(id, '', '', '自定义Buff');
+      }
+    }
+    for (const b of S.keywords?.buffs || []) {
+      const ids = Array.isArray(b.ids) ? b.ids : [b.id];
+      for (const id of ids) {
+        addBuff(id, b.zh, b.native, b.source === 'mod' ? '自定义Buff' : '原版Buff');
+      }
+    }
+  }
+
   return out;
 }
 

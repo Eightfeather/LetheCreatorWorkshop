@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { writeFilesTransactional } from '../atomic.mjs';
 import { readModPayload, modDirSafe } from './mods.mjs';
 import { SafetyError } from '../safety.mjs';
+import { clearSkillCache } from './skills.mjs';
 
 function entityOf(payload, cat, id) {
   const list = (payload && payload.data && payload.data[cat]) || [];
@@ -49,8 +50,10 @@ export function writeScriptSlot(letheRoot, { name, kind, id, where = 'main', coi
     if (!seg) throw new SafetyError('这个技能没有脚本段');
     let arr;
     if (where === 'coin') {
-      const c = Array.isArray(seg.coinList) ? seg.coinList[Number(coin) || 0] : null;
-      if (!c) throw new SafetyError('第 ' + (Number(coin) + 1) + ' 枚硬币不存在');
+      const ci = Number(coin);
+      if (!Number.isInteger(ci) || ci < 0) throw new SafetyError('硬币序号不合法：' + coin);
+      const c = Array.isArray(seg.coinList) ? seg.coinList[ci] : null;
+      if (!c) throw new SafetyError('第 ' + (ci + 1) + ' 枚硬币不存在');
       if (!Array.isArray(c.abilityScriptList)) c.abilityScriptList = [];
       arr = c.abilityScriptList;
     } else {
@@ -75,6 +78,7 @@ export function writeScriptSlot(letheRoot, { name, kind, id, where = 'main', coi
     else ent.list.push({ ability: t });
   }
   const result = writeDoc(letheRoot, dir, mod, found.rel, doc);
+  if (cat === 'skill') clearSkillCache(letheRoot);
   return { ok: true, kind: cat, id: String(id), where, coin: Number(coin) || 0, index: Number(index) || 0, text: t, ...result };
 }
 
@@ -118,8 +122,10 @@ export function writeSlotTexts(letheRoot, { name, kind, id, where = 'main', coin
     if (!Array.isArray(ent.skillData)) ent.skillData = [];
     const seg = (ent.skillData[0] = ent.skillData[0] || {});
     if (String(where) === 'coin') {
-      const ci = Number(coin) || 0;
+      const ci = Number(coin);
+      if (!Number.isInteger(ci) || ci < 0) throw new SafetyError('硬币序号不合法：' + coin);
       if (!Array.isArray(seg.coinList)) seg.coinList = [];
+      if (ci >= seg.coinList.length) throw new SafetyError('第 ' + (ci + 1) + ' 枚硬币不存在');
       const c = (seg.coinList[ci] = seg.coinList[ci] || {});
       const old = Array.isArray(c.abilityScriptList) ? c.abilityScriptList : [];
       c.abilityScriptList = list.map((t, i) => (old[i] && String(old[i].scriptName || '') === t ? old[i] : { scriptName: t }));
@@ -138,5 +144,6 @@ export function writeSlotTexts(letheRoot, { name, kind, id, where = 'main', coin
     });
   }
   const result = writeDoc(letheRoot, dir, mod, found.rel, doc);
+  if (cat === 'skill') clearSkillCache(letheRoot);
   return { ok: true, kind: cat, id: String(id), where: String(where), coin: Number(coin) || -1, count: list.length, ...result };
 }

@@ -253,12 +253,18 @@ function readModSkillLocale(letheRoot, mod) {
   const dir = join(letheRoot, 'mods', mod, 'custom_limbus_locale', 'EN', 'skillList');
   const out = {};
   let names = [];
-  try { names = fs.readdirSync(dir); } catch { return out; }
+  try { names = readdirSync(dir); } catch { return out; }
   for (const f of names) {
     if (!f.toLowerCase().endsWith('.json')) continue;
     const doc = readJson(join(dir, f), null);
     if (!doc || typeof doc !== 'object') continue;
-    for (const [k, v] of Object.entries(doc)) if (k && v && typeof v === 'object') out[k] = v;
+    if (Array.isArray(doc.list)) {
+      for (const entry of doc.list) {
+        if (entry && entry.id != null) out[String(entry.id)] = entry;
+      }
+    } else {
+      for (const [k, v] of Object.entries(doc)) if (k && v && typeof v === 'object') out[k] = v;
+    }
   }
   return out;
 }
@@ -288,4 +294,6 @@ function vanillaPersonalityIndex(letheRoot) {
   return list;
 }
 
-export function clearSkillCache(letheRoot) { cache.delete(letheRoot); }
+export function clearSkillCache(letheRoot) {
+  cache.clear();
+}
