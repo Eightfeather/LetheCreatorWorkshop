@@ -150,6 +150,8 @@ export function locate({ explicit, config = {}, quick = false, budgetMs = 8000, 
   const configOk = candidates.find((c) => c.from === 'config.letheRoot' && c.acceptable);
   if (configOk) return { best: configOk, candidates, tried, scanned: false };
   push(config.gameRoot, 'config.gameRoot');
+  const gameOk = candidates.find((c) => c.from === 'config.gameRoot' && c.acceptable);
+  if (gameOk) return { best: gameOk, candidates, tried, scanned: false };
   for (const r of config.recentRoots || []) push(r, 'recent');
 
   if (!quick) {

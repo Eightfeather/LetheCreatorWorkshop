@@ -19,7 +19,7 @@ import { autoBackupsDir, journalDir, markCleanExit, markRunning, readSessionMark
 import { restoreFromSlot, slotInfo } from '../lethe/snapshot.mjs';
 import { homeStats } from '../lethe/stats.mjs';
 import { createSkill, getSkill, importSkills, listSkills, searchSkillIndex, skillsOfVanillaPersonality, clearSkillCache, skillExistsAnywhere } from '../lethe/skills.mjs';
-import { BUFF_CLASSES, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, skillCodePath } from '../lethe/meta.mjs';
+import { BUFF_CLASSES, BUFF_CLASS_COMPAT, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, skillCodePath } from '../lethe/meta.mjs';
 import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex, clearPassiveCache } from '../lethe/passives.mjs';
 import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex, writeBuffIcon, clearBuffCache } from '../lethe/buffs.mjs';
 import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestCandidates, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
@@ -332,15 +332,21 @@ export function buildApi(ctx) {
       });
       if (result.best) {
         state.letheRoot = result.best.letheRoot;
-      migrateToLcw(state.letheRoot, log);
-        warmupCaches(state.letheRoot, log).catch(() => {});
         migrateToLcw(state.letheRoot, log);
         warmupCaches(state.letheRoot, log).catch(() => {});
         state.gameRoot = result.best.gameRoot;
         state.locatedAt = new Date().toISOString();
         state.source = result.best.from;
         markRunning(state.letheRoot);
-        state.config = rememberRoot(result.best.gameRoot || result.best.letheRoot);
+        state.config = saveConfig({
+        gameRoot: result.best.gameRoot || '',
+        letheRoot: result.best.letheRoot || '',
+        recentRoots: (() => {
+          const prev = Array.isArray(state.config && state.config.recentRoots) ? state.config.recentRoots : [];
+          const pick = result.best.gameRoot || result.best.letheRoot;
+          return [pick, ...prev].filter((v, i, a) => v && a.findIndex((x) => String(x).toLowerCase() === String(v).toLowerCase()) === i).slice(0, 8);
+        })(),
+      });
         log?.(`定位成功：${state.letheRoot}`);
       }
       return { ok: Boolean(result.best), best: result.best, candidates: result.candidates, tried: result.tried, stats: { ...scanStats } };
@@ -360,7 +366,15 @@ export function buildApi(ctx) {
       state.locatedAt = new Date().toISOString();
       state.source = 'manual';
       markRunning(state.letheRoot);
-      state.config = rememberRoot(result.best.gameRoot || result.best.letheRoot);
+      state.config = saveConfig({
+        gameRoot: result.best.gameRoot || '',
+        letheRoot: result.best.letheRoot || '',
+        recentRoots: (() => {
+          const prev = Array.isArray(state.config && state.config.recentRoots) ? state.config.recentRoots : [];
+          const pick = result.best.gameRoot || result.best.letheRoot;
+          return [pick, ...prev].filter((v, i, a) => v && a.findIndex((x) => String(x).toLowerCase() === String(v).toLowerCase()) === i).slice(0, 8);
+        })(),
+      });
       return { ok: true, ...result.best };
     },
 
@@ -858,6 +872,7 @@ export function buildApi(ctx) {
         coinColors: COIN_COLORS,
         passiveConditions: PASSIVE_CONDITION_TYPES,
         buffClasses: BUFF_CLASSES,
+        buffClassesCompat: BUFF_CLASS_COMPAT,
         buffTypes: BUFF_TYPES,
         moduleKinds: MODULE_KINDS,
         passiveDefaults: DEFAULT_PASSIVE_INFO,
@@ -911,7 +926,15 @@ export function buildApi(ctx) {
           override: Boolean(one.override),
           hasLocale: Boolean(one.locale),
           updatedAt: one.meta.updatedAt || '',
-          info: one.meta.info,
+          info: (() => {
+            const i0 = { ...one.meta.info };
+            const sdA = ((((one.entity || {}).skillData) || [])[0]) || {};
+            if (!i0.defType) i0.defType = String(sdA.defType || 'ATTACK').toUpperCase();
+            i0.defType = String(i0.defType).toUpperCase();
+            if (i0.canDuel == null) i0.canDuel = sdA.canDuel !== false;
+            if (i0.defType === 'EVADE') i0.canDuel = false;
+            return i0;
+          })(),
           code: (() => {
             const sd0 = ((((one.entity || {}).skillData) || [])[0]) || {};
             const coins0 = Array.isArray(sd0.coinList) ? sd0.coinList : [];
@@ -975,6 +998,7 @@ export function buildApi(ctx) {
               sin: String(sd0.attributeType || ''),
               sign: op === 'SUB' ? 'negative' : 'positive',
               defType: String(sd0.defType || ''),
+              canDuel: sd0.canDuel !== false,
               skillType: String(one.entity.skillType || ''),
               skillTier: Number(one.entity.skillTier) || 1,
               coinValues: coins0.map((c) => Number((c || {}).scale) || 0),

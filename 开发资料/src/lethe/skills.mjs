@@ -4,7 +4,7 @@ import { readJson, writeFilesTransactional } from '../atomic.mjs';
 import { cleanName, SafetyError } from '../safety.mjs';
 import { entitiesOf, findLocaleEntry, modDirSafe, readModPayload } from './mods.mjs';
 import { ensureLayout } from './layout.mjs';
-import { normalizeId, readSkillMeta, writeSkillMeta } from './meta.mjs';
+import { normalizeId, readSkillMeta, skillMetaPath, writeSkillMeta } from './meta.mjs';
 
 function walkJson(dir, out = [], depth = 0) {
   if (!existsSync(dir) || depth > 4) return out;
@@ -137,6 +137,7 @@ export function getSkill(letheRoot, modName, id) {
   if (!rec) return null;
   const loc = findLocaleEntry(payload.locales.EN?.skill, id);
   const meta = readSkillMeta(letheRoot, modName, id);
+  const metaFile = existsSync(skillMetaPath(letheRoot, modName, id));
   const index = gameSkillIndex(letheRoot);
   return {
     id: String(rec.id),
@@ -144,6 +145,7 @@ export function getSkill(letheRoot, modName, id) {
     entity: rec.entity,
     locale: loc || null,
     meta,
+    metaFile,
     override: index.byId.get(String(rec.id))?.source === 'vanilla',
   };
 }

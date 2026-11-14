@@ -33,6 +33,8 @@ export const DEFAULT_INFO = {
   physical: 'SLASH',
   sin: 'AZURE',
   sign: 'positive',
+  defType: 'ATTACK',
+  canDuel: true,
 };
 
 /** 物理属性：与游戏 atkType 枚举一一对应（突刺=PENETRATE、打击=HIT） */
@@ -99,9 +101,27 @@ export const DEFAULT_BUFF_INFO = {
 
 /** Buff 类别：游戏枚举名，官方中文未在 locale 中给出，这里保留英文枚举并附中文说明 */
 export const BUFF_CLASSES = [
-  { id: 'NonvolatileBuff', zh: '常驻（NonvolatileBuff）' },
-  { id: 'VolatileBuff', zh: '挥发（VolatileBuff）' },
+  { id: 'NonvolatileBuff', zh: '常驻', note: '只有强度，回合结束不消失' },
+  { id: 'VolatileBuff', zh: '挥发', note: '只有强度，回合结束消失' },
+  { id: 'CountableBuff', zh: '可计数', note: '有强度与层数，按 maxTurn 决定回合结束后是否消失' },
+  { id: 'SinBuff', zh: '罪孽状态', note: '类可计数，7 大状态专用，需要 attributeType' },
 ];
+
+/** 官方文档未收录、只在游戏数据里出现的类别：编辑器只读兼容，绝不主动改写 */
+export const BUFF_CLASS_COMPAT = [
+  { id: 'VariableBuff', zh: '变量型', note: '脚本内部变量载体，没有强度/层数语义' },
+  { id: 'TypoOnlyBuff', zh: '拼写兜底', note: '游戏数据里的笔误类别，行为近似常驻' },
+  { id: 'VolatileResistBuff', zh: '挥发抗性', note: '回合结束消失，只承载抗性修正' },
+  { id: 'CumulativeStackReportBuff', zh: '累计计数', note: '资源累计层数报表' },
+  { id: 'UsedTurnReportSinBuff', zh: '计时罪孽', note: '带 maxTurn 的特殊充能' },
+];
+
+export function isCompatBuffClass(id) {
+  return BUFF_CLASS_COMPAT.some((x) => x.id === id);
+}
+export function isKnownBuffClass(id) {
+  return BUFF_CLASSES.some((x) => x.id === id) || isCompatBuffClass(id);
+}
 
 /** Buff 正负：游戏文案使用「增益 / 减益」 */
 export const BUFF_TYPES = [
@@ -161,6 +181,10 @@ function normalizeSkillMeta(doc, id) {
   const rawCoins = Array.isArray(code.coins) ? code.coins : [];
   const count = Math.max(1, Math.min(9, rawCoins.length));
   info.coinCount = count;
+  if (!info.defType) info.defType = 'ATTACK';
+  info.defType = String(info.defType).toUpperCase();
+  if (info.canDuel == null) info.canDuel = info.defType === 'ATTACK';
+  if (info.defType === 'EVADE') info.canDuel = false;
   return {
     version: META_VERSION,
     id: String(id),
@@ -290,7 +314,7 @@ function normalizeBuffMeta(doc, id) {
   const info = { ...DEFAULT_BUFF_INFO, ...(src.info || {}) };
   info.maxStack = Math.max(1, Math.min(999, Number(info.maxStack) || 1));
   info.maxTurn = Math.max(-1, Math.min(999, Number(info.maxTurn) || 1));
-  if (!BUFF_CLASSES.some((x) => x.id === info.buffClass)) info.buffClass = 'NonvolatileBuff';
+  if (!isKnownBuffClass(info.buffClass)) info.buffClass = 'NonvolatileBuff';
   if (!BUFF_TYPES.some((x) => x.id === info.buffType)) info.buffType = 'Positive';
   const code = src.code && typeof src.code === 'object' ? src.code : {};
   return {

@@ -80,6 +80,7 @@ const S = {
   dllDetail: null,
   dllTab: 'current',
   editKind: null,
+  editModsCollapsed: (() => { try { return localStorage.getItem('lcw-edit-mods-collapsed') === '1'; } catch { return false; } })(),
   mdKind: null,
   mdSchemas: null,
   mdList: [],
@@ -720,17 +721,24 @@ const modRowMini = (m) => `<button class="item mini ${S.selected === m.name ? 'a
   <span class="state-dot ${m.enabled ? 'on' : 'off'}"></span>
 </button>`;
 
+function renderEditModList() {
+  const collapsed = Boolean(S.editModsCollapsed);
+  const list = (S.mods || []).map((m) => '<button class="item' + (m.name === S.selected ? ' active' : '')
+    + (m.enabled === false ? ' disabled' : '') + '" data-act="edit-pick-mod" data-name="' + esc(m.name) + '">'
+    + '<span class="item-name">' + esc(m.name) + '</span>'
+    + '<small>' + (m.personalityCount != null ? m.personalityCount + ' 人格' : '') + (m.enabled === false ? ' · 已禁用' : '') + '</small>'
+    + (m.enabled === false ? '<span class="x-badge">×</span>' : '') + '</button>').join('');
+  return '<aside class="panel list-panel edit-mods" id="edit-mods">'
+    + '<div class="panel-head"><span>选择编辑 Mod</span><span class="muted">' + (S.mods || []).length + '</span>'
+    + '<button class="btn ghost sm" data-act="toggle-edit-mods" title="' + (collapsed ? '展开' : '收起') + '">' + (collapsed ? '›' : '‹') + '</button></div>'
+    + '<div class="panel-body">' + (list || '<div class="empty-state"><small class="muted">mods 目录是空的</small></div>') + '</div>'
+    + '</aside>';
+}
+
 function renderEdit() {
-  const opts = (S.mods || []).map((m) => '<option value="' + esc(m.name) + '"' + (m.name === S.selected ? ' selected' : '') + '>'
-    + esc(m.name) + (m.enabled === false ? '（已禁用）' : '') + '</option>').join('');
-  // v0.9.17：顶部「选择编辑 Mod」只在 Mod 编辑首页出现，进入具体编辑器后隐藏
-  const top = S.editKind ? '' : ('<div class="edit-top">'
-    + '<label class="field inline"><span>选择编辑 Mod</span><select id="edit-mod">' + (opts || '<option value="">mods 目录是空的</option>') + '</select></label>'
-    + '<span class="muted">' + (S.selected ? esc(S.selected) : '尚未选择 Mod') + ' · 切换编辑对象请回到本页</span>'
-    + '</div>');
-  return '<div class="layout edit no-side">'
+  return '<div class="layout edit' + (S.editModsCollapsed ? ' list-collapsed' : '') + '">'
+    + renderEditModList()
     + '<section class="panel edit-pane">'
-    + top
     + (S.editKind ? renderKindTabs() + renderKindArea() : renderWizardHome())
     + '<div class="dock-mini" id="session-hint"></div>'
     + '</section></div>';
@@ -2571,6 +2579,42 @@ const actions = {
       toast(e.message, 'error');
     }
   },
+  'edit-pick-mod': async (el) => {
+    const name = el.dataset.name;
+    if (!name || name === S.selected) return;
+    const go = async () => {
+      S.selected = name;
+      S.editKind = null;
+      S.skill = null; S.skillId = null; S.skills = [];
+      S.passive = null; S.passiveId = null; S.passives = [];
+      S.buff = null; S.buffId = null; S.buffs = [];
+      S.personality = null; S.personalityId = null;
+      try { localStorage.setItem('lcw-edit-mod', name); } catch { /* ignore */ }
+      await loadMods();
+      await refreshSession(name);
+      render();
+    };
+    if (typeof mbGuardDirty === 'function' && S.mb && mbIsDirty && mbIsDirty()) { mbGuardDirty(go); return; }
+    if (S.session && S.session.dirty && S.selected) {
+      modal({
+        title: '有未保存的改动',
+        body: '<p>当前 Mod「' + esc(S.selected) + '」还有未保存的改动。切换到「' + esc(name) + '」前要先保存吗？</p>',
+        footer: '<button class="btn ghost" data-act="close-modal">取消</button>'
+          + '<button class="btn" data-act="edit-switch-discard">放弃改动并切换</button>'
+          + '<button class="btn primary" data-act="edit-switch-save">保存并切换</button>',
+      });
+      S.pendingSwitch = name;
+      return;
+    }
+    await go();
+  },
+  'edit-switch-discard': async () => { const name = S.pendingSwitch; S.pendingSwitch = null; closeModal(); if (!name) return; S.selected = name; S.editKind = null; S.session = null; await loadMods(); render(); },
+  'edit-switch-save': async () => {
+    const name = S.pendingSwitch; S.pendingSwitch = null; closeModal();
+    try { await api('/api/personality/save', { method: 'POST', body: { name: S.selected, id: S.personalityId } }); } catch { /* 非人格页忽略 */ }
+    S.selected = name; S.editKind = null; S.session = null; await loadMods(); render();
+  },
+  'toggle-edit-mods': () => { S.editModsCollapsed = !S.editModsCollapsed; try { localStorage.setItem('lcw-edit-mods-collapsed', S.editModsCollapsed ? '1' : '0'); } catch { /* ignore */ } render(); },
   'save-settings': async () => {
     const dgOn = document.getElementById('set-delguard-on');
     const dgSec = document.getElementById('set-delguard-sec');
@@ -2586,6 +2630,17 @@ const actions = {
       } catch (e) { toast('兼容渲染设置未能保存：' + e.message, 'warn'); }
     }
     applyFontMode(fm);
+    // 手动填/选的私服路径：与当前不一致时先落盘并切换（修复「改路径点保存后仍用旧路径」）
+    const rootInput = ($('#set-root')?.value || '').trim();
+    const curRoot = String(S.status?.gameRoot || S.status?.letheRoot || '').trim();
+    if (rootInput && rootInput.replace(/\\+$/, '').toLowerCase() !== curRoot.replace(/\\+$/, '').toLowerCase()) {
+      try {
+        await api('/api/root', { method: 'POST', body: { path: rootInput } });
+      } catch (e) {
+        toast('私服路径未生效：' + (e.message || '目录无效'), 'error');
+        return;
+      }
+    }
     const res = await api('/api/config', { method: 'POST', body: { editorName, theme, fontMode: fm } });
     S.status = { ...S.status, editorName, theme };
     document.documentElement.dataset.theme = theme;
@@ -3342,8 +3397,12 @@ function pNormalizeSkill(sk) {
   const fi = out.fileInfo || null;
   if (fi) {
     const keep = { ...(out.info || {}) };
-    ['defType', 'skillType'].forEach((k) => { delete keep[k]; });
+    delete keep.skillType;
+    const fiDef = String(fi.defType || keep.defType || 'ATTACK').toUpperCase();
+    const fiDuel = fi.canDuel != null ? fi.canDuel !== false : (keep.canDuel != null ? Boolean(keep.canDuel) : fiDef === 'ATTACK');
     out.info = Object.assign(keep, {
+      defType: fiDef,
+      canDuel: fiDef === 'EVADE' ? false : fiDuel,
       basePower: fi.basePower,
       atkCorrection: fi.atkCorrection,
       targetNum: fi.targetNum,
@@ -3960,9 +4019,15 @@ async function flushInfo() {
     if (k === 'defType') { info[k] = String(el.value); return; }
     info[k] = el.tagName === 'SELECT' ? el.value : Number(el.value);
   });
+  if (String(info.defType || '').toUpperCase() === 'EVADE') info.canDuel = false;
   const before = (S.skill.code?.coins || []).length;
   const res = await api('/api/skill/state', { method: 'POST', body: { name: S.selected, id: S.skillId, info } });
-  S.skill = { ...S.skill, info: res.info, infoSource: 'file', skillTier: Number(res.info.skillTier) || S.skill.skillTier };
+  const infoOut = { ...(res.info || {}) };
+  if (!infoOut.defType) infoOut.defType = String(info.defType || 'ATTACK').toUpperCase();
+  infoOut.defType = String(infoOut.defType).toUpperCase();
+  if (infoOut.canDuel == null) infoOut.canDuel = info.canDuel != null ? Boolean(info.canDuel) : infoOut.defType === 'ATTACK';
+  if (infoOut.defType === 'EVADE') infoOut.canDuel = false;
+  S.skill = { ...S.skill, info: infoOut, infoSource: 'file', skillTier: Number(infoOut.skillTier) || S.skill.skillTier };
   const total = Number(res.info.coinCount) || before;
   const coins = (S.skill.code?.coins || []).slice(0, total).map((c) => ({ ...c }));
   while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
@@ -4163,10 +4228,12 @@ async function saveCode() {
   });
   const codes = (res.meta.code && res.meta.code.coins) || [];
   const cols = codes.map((c) => String((c && c.color) || 'GREY').toUpperCase());
+  // 只同步硬币相关字段：表单里尚未保存的基础信息/罪孽/属性不能被服务端草稿覆盖
+  const keepInfo = { ...((S.skill && S.skill.info) || {}) };
   S.skill = {
     ...S.skill,
     code: res.meta.code,
-    info: { ...(res.meta.info || {}), coinCount: codes.length },
+    info: { ...keepInfo, coinCount: codes.length },
     fileInfo: { ...(S.skill.fileInfo || {}), coinColors: cols.length ? cols : (S.skill.fileInfo || {}).coinColors },
   };
   render();
@@ -6615,11 +6682,11 @@ function renderPassiveMain() {
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
     + '<button class="btn primary sm" data-act="save-passive">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
-    + '<div class="skill-body passive-body">'
+    + '<div class="skill-body passive-body"><div class="skill-side">' + renderPassiveInfo(p) + '</div>'
     + '<div class="editor-card"><div class="tabs">'
     + '<button class="tab ' + (S.passiveTab === 'code' ? 'active' : '') + '" data-act="passive-tab" data-tab="code">代码</button>'
     + '<button class="tab ' + (S.passiveTab === 'desc' ? 'active' : '') + '" data-act="passive-tab" data-tab="desc">描述</button></div>'
-    + (S.passiveTab === 'desc' ? renderPassiveDesc(p) : (renderPassiveInfo(p) + renderSimpleCode('passive', p)))
+    + (S.passiveTab === 'desc' ? renderPassiveDesc(p) : renderSimpleCode('passive', p))
     + '</div></div></section>';
 }
 
@@ -7049,6 +7116,11 @@ function renderBuffMain() {
   const sess = S.session || {};
   const classes = S.keywords?.buffClasses || [{ id: 'NonvolatileBuff', zh: '常驻（NonvolatileBuff）' }, { id: 'VolatileBuff', zh: '挥发（VolatileBuff）' }];
   const types = S.keywords?.buffTypes || [{ id: 'Positive', zh: '增益' }, { id: 'Negative', zh: '减益' }, { id: 'Neutral', zh: '中性' }];
+  const compatList = S.keywords?.buffClassesCompat || [];
+  const compat = compatList.find((x) => x.id === info.buffClass);
+  const classField = (compat
+    ? '<label class="field"><span>Buff 种类</span><select disabled title="兼容类别：保存时保持原值，不做修改"><option>兼容（原值：' + esc(compat.id) + '）</option></select></label>'
+    : sel('Buff 种类', 'buffClass', classes));
   const opt = (arr, v) => arr.map((x) => '<option value="' + esc(x.id) + '"' + (String(x.id) === String(v) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('');
   const field = (label, key, type, extra) => '<label class="field"><span>' + label + '</span><input type="' + (type || 'number') + '" data-binfo="' + key + '" value="' + esc(info[key] ?? '') + '" ' + (extra || '') + '></label>';
   const sel = (label, key, arr) => '<label class="field"><span>' + label + '</span><select data-binfo="' + key + '">' + opt(arr, info[key]) + '</select></label>';
@@ -7059,16 +7131,18 @@ function renderBuffMain() {
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
     + '<button class="btn primary sm" data-act="save-buff">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
-    + '<div class="skill-body"><div class="info-card"><div class="col-title">Buff 基础信息</div><div class="grid-2">'
-    + sel('Buff 种类', 'buffClass', classes) + sel('正负 Buff', 'buffType', types)
+    + '<div class="skill-body"><div class="skill-side"><div class="info-card"><div class="col-title">Buff 基础信息</div><div class="grid-2">'
+    + classField + sel('正负 Buff', 'buffType', types)
     + field('最大强度', 'maxStack') + field('最大层数', 'maxTurn', 'number')
     + field('Buff 图像', 'iconId', 'text') + field('所属', 'special', 'text')
     + '<label class="field"><span>图标文件（仅 PNG）</span><button class="btn ghost sm" data-act="b-icon">上传图标…</button><input type="file" id="b-icon-file" accept="image/png" style="display:none"></label>'
     + '</div>'
     + '<label class="field check"><input type="checkbox" data-binfo="canBeDespelled"' + (info.canBeDespelled !== false ? ' checked' : '') + '><span>可被净化</span></label>'
     + '<div class="hint muted">「所属」留空表示普通 Buff；填关键词表示该 Buff 的特殊归属。</div>'
+    + (compat ? '<div class="hint muted">该 Buff 属于官方文档未收录的「' + esc(compat.zh) + '」类别（' + esc(compat.id) + '）：' + esc(compat.note || '') + '。编辑器保持原值，保存不会改写 buffClass。</div>' : '')
     + '<div class="col-title" style="margin-top:14px">文件字段 <span class="muted">（改动即时写盘）</span></div>'
     + buffFileFields(b)
+    + '</div>'
     + '</div>'
     + '<div class="editor-card"><div class="tabs">'
     + '<button class="tab ' + (S.buffTab === 'code' ? 'active' : '') + '" data-act="buff-tab" data-tab="code">代码</button>'
