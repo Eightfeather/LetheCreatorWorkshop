@@ -1344,7 +1344,7 @@ function renderPersonalityDetail() {
     <aside class="p-portrait">
       <div class="pp-frame">${pPortraitHtml()}</div>
       <button class="btn ghost sm" data-act="p-portrait">编辑立绘</button>
-      <div class="pp-id" style="display:flex; align-items:center; justify-content:center; gap:4px;">${esc(p.id)}${vanilla ? ' · 原版' : `<button class="btn ghost xs" data-act="p-change-id" title="修改人格 ID">修改 ID</button>`}</div>
+      <div class="pp-id">${esc(p.id)}${vanilla ? ' · 原版' : ''}</div>
       ${ro ? '<button class="btn primary sm" data-act="p-export-edit" data-id="' + esc(p.id) + '" title="导出到本 Mod 并编辑">导出到本 Mod 并编辑</button>' : ''}
     </aside>
     <div class="p-main${locked ? ' p-locked' : ''}${ro ? ' p-readonly' : ''}">
@@ -1383,6 +1383,7 @@ function renderPersonalityDetail() {
       ${pSection('基础数值', `
         ${pRow('人格名称（外显）', `<input data-field="locale.title" value="${esc(l.title ?? '')}" placeholder="必填">`)}
         ${pRow('所属罪人', `<span class="p-chip">${esc(l.name || '由所选罪人自动填入')}</span>`, '保存时自动写入 locale.name')}
+        ${pRow('人格 ID', vanilla ? `<span class="p-chip">${esc(p.id)} · 原版不可改</span>` : `<span class="p-chip">${esc(p.id)}</span> <button class="btn ghost xs" data-act="p-change-id">修改</button>`, '保存前会查重；会同步改名实体文件与贴图')}
         ${pRow('稀有度', rankPicker + `<select class="sr-only" data-field="entity.rank" tabindex="-1" aria-hidden="true">${rankList.map((r) => `<option value="${r}" ${Number(e.rank) === r ? 'selected' : ''}>${r}</option>`).join('')}</select>`)}
         <div class="p-grid2">
           ${pRow('防御修正值', `<input type="text" inputmode="decimal" data-num="1" data-field="entity.defCorrection" value="${esc(e.defCorrection ?? '')}" placeholder="-999 ~ +999">`, '-999 ~ +999')}
@@ -2485,6 +2486,19 @@ const actions = {
       }
     }, 30);
   },
+  'p-id-ok': async () => {
+    const v = String(($('#p-id-new') && $('#p-id-new').value) || '').trim();
+    if (!/^\d{4,10}$/.test(v)) { toast('人格 ID 必须是 4–10 位数字', 'error'); return; }
+    try {
+      await api('/api/personality/update-id', { method: 'POST', body: { name: S.selected, oldId: S.personalityId, newId: v } });
+      closeModal();
+      toast('人格 ID 已改为 ' + v, 'ok');
+      S.personalityId = v;
+      await loadPersonalities(S.selected);
+      await loadPersonality(S.selected, v);
+      render();
+    } catch (e) { toast(e.message, 'error'); }
+  },
   'submit-edit-skmain': async (el) => {
     const oldId = el.dataset.oldId;
     const newId = $('#edit-skmain-id')?.value?.trim();
@@ -2501,6 +2515,11 @@ const actions = {
       await openSkill(newId);
     } catch (e) { toast(e.message, 'error'); }
   },
+  'coin-add': () => addCoin(),
+  'coin-del': (el) => deleteCoin(Number(el.dataset.index)),
+  'coin-move': (el) => moveCoin(Number(el.dataset.index), el.dataset.dir === 'up' ? -1 : 1),
+  'b-icon': () => { const inp = $('#b-icon-file'); if (inp) inp.click(); },
+  'p-change-id': () => openPersonalityIdModal(),
   'open-skill': (el) => openSkill(el.dataset.id),
   'skill-tab': (el) => { S.skillTab = el.dataset.tab; render(); },
   'new-skill': () => openCreateSkill(),
@@ -3041,7 +3060,8 @@ document.addEventListener('input', (e) => {
   if (t.id === 'module-search2') { S.moduleSearch2 = t.value; render(); refocus('module-search2', t.value.length); return; }
   if (t.id === 'mb-search') { mbResShow(t.value); return; }
   if (t.dataset && t.dataset.pinfo) { schedulePInfo(); return; }
-  if (t.dataset && t.dataset.binfo) { scheduleBInfo(); return; }
+      if (t.id === 'b-icon-file' && t.files && t.files[0]) { uploadBuffIcon(t.files[0]).catch((e) => toast(e.message, 'error')); return; }
+      if (t.dataset && t.dataset.binfo) { scheduleBInfo(); return; }
   if (t.dataset && t.dataset.info) { scheduleInfo(); }
 });
 
@@ -3055,6 +3075,7 @@ document.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 document.addEventListener('change', (e) => {
+  if (e.target && e.target.dataset && e.target.dataset.info) { scheduleInfo(); return; }
   if (e.target && e.target.id === 'edit-mod') {
     const nm = e.target.value;
     if (!nm || nm === S.selected) { render(); return; }
@@ -3471,6 +3492,19 @@ function renderSkillPreview(sk) {
     + "<span class=\"sk-cap\" title=\"攻击容量\">攻击容量<em>" + "■".repeat(cap) + "</em></span>"
     + "</div></div></div></div>";
 }
+function rowDuel(info) {
+  const dt = String((info && info.defType) || 'ATTACK').toUpperCase();
+  const can = Boolean(info && info.canDuel);
+  if (dt === 'EVADE') return '';
+  const label = dt === 'ATTACK' ? '可拼点' : (dt === 'GUARD' ? '升级为可拼点守备（防御）' : '升级为可拼点反击');
+  const box = dt === 'ATTACK'
+    ? '<select class="sk-row-v" data-info="canDuel">'
+      + '<option value="false"' + (can ? '' : ' selected') + '>不可拼点</option>'
+      + '<option value="true"' + (can ? ' selected' : '') + '>可拼点</option></select>'
+    : '<label class="sk-check"><input type="checkbox" data-info="canDuel"' + (can ? ' checked' : '') + '></label>';
+  return '<div class="sk-row"><span class="sk-row-l">' + label + '</span>' + box + '</div>';
+}
+
 function renderSkillInfoList(sk) {
   const info = sk.info || {};
   const rowText = (label, key) => "<div class=\"sk-row\"><span class=\"sk-row-l\">" + label + "</span>"
@@ -3480,7 +3514,9 @@ function renderSkillInfoList(sk) {
   return "<div class=\"info-card skill-info\"><div class=\"col-title\">基础信息</div>"
     + "<div class=\"hint muted\" style=\"margin:-2px 0 8px\">数值直接取自技能文件；改动写回技能文件并记入撤销历史。</div>"
     + "<div class=\"sk-list\">"
-    + rowText("基础威力", "basePower") + rowText("硬币数量", "coinCount")
+    + rowText("基础威力", "basePower")
+    + rowSel("技能类型", "defType", [{ id: "ATTACK", zh: "攻击" }, { id: "GUARD", zh: "守备" }, { id: "COUNTER", zh: "反击" }, { id: "EVADE", zh: "闪避" }])
+    + rowDuel(info)
     + rowText("攻击修正值", "atkCorrection") + rowText("攻击容量", "targetNum")
     + rowSel("物理属性", "physical", (S.keywords && S.keywords.physical) || [])
     + rowSel("罪孽属性", "sin", (S.keywords && S.keywords.sin) || [])
@@ -3693,15 +3729,18 @@ function renderSkillGroups(doc) {
 function renderSkillCode(code) {
   const colors = S.keywords?.coinColors || [{ id: 'GREY', zh: '灰' }];
   const skillZone = '<div class="drop-zone slot-stack" data-drop="skill" data-coin="-1">' + slotStackHtml('skill', 'skill', -1) + '</div>';
-  const coins = (code.coins || []).map((c, i) => '<div class="coin-card"><div class="coin-head"><i class="coin-ico c-' + coinClassOf(c.color) + '" title="硬币颜色"></i><strong>硬币 ' + (i + 1) + '</strong>'
+  const coins = (code.coins || []).map((c, i) => '<div class="coin-card" data-coin-card="' + i + '"><div class="coin-head"><span class="coin-drag" draggable="true" data-coin-drag="' + i + '" title="拖动以调整硬币顺序">⠿</span><i class="coin-ico c-' + coinClassOf(c.color) + '" title="硬币颜色"></i><strong>硬币 ' + (i + 1) + '</strong>'
+    + '<button class="coin-x" data-act="coin-del" data-index="' + i + '" title="删除这枚硬币">×</button>'
     + '<select data-coin="' + i + '" data-key="color">'
     + colors.map((x) => '<option value="' + esc(x.id) + '"' + (String(c.color) === String(x.id) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('')
     + '</select><label class="inline-field">变动值 <input type="text" inputmode="decimal" data-num="1" data-coin="' + i + '" data-key="value" value="' + esc(c.value ?? 0) + '"></label></div>'
     + '<div class="drop-zone slot-stack" data-drop="coin" data-index="' + i + '" data-coin="' + i + '">' + slotStackHtml('skill', 'coin', i) + '</div></div>').join('');
 
+  const nCoins = (code.coins || []).length;
   return '<div class="code-wrap"><div class="code-col"><div class="col-title">技能置入区</div>' + skillZone + '</div>'
-    + '<div class="coin-col"><div class="col-title">硬币置入区 <span class="muted">（数量由「硬币数量」决定）</span></div>'
-    + (coins || '<div class="list-empty">硬币数量至少为 1</div>') + '</div></div>'
+    + '<div class="coin-col"><div class="col-title">硬币置入区 <span class="muted">（' + nCoins + ' / 9 枚，拖动 ⠿ 调整顺序）</span></div>'
+    + (coins || '<div class="list-empty">至少要有 1 枚硬币</div>')
+    + '<button class="btn ghost sm coin-add" data-act="coin-add"' + (nCoins >= 9 ? ' disabled' : '') + '>＋ 添加硬币</button></div></div>'
     + '<div class="hint muted">从右侧模块列表拖入；未识别模块会原样保留，🖊 可临时用积木编辑（只改这一处）。</div>';
 }
 
@@ -3909,6 +3948,9 @@ async function flushInfo() {
   const info = {};
   $$('[data-info]', card).forEach((el) => {
     const k = el.dataset.info;
+    if (el.type === 'checkbox') { info[k] = el.checked; return; }
+    if (k === 'canDuel') { info[k] = String(el.value) === 'true'; return; }
+    if (k === 'defType') { info[k] = String(el.value); return; }
     info[k] = el.tagName === 'SELECT' ? el.value : Number(el.value);
   });
   const before = (S.skill.code?.coins || []).length;
@@ -3919,8 +3961,9 @@ async function flushInfo() {
   while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
   S.skill = { ...S.skill, code: { ...(S.skill.code || {}), coins } };
   S.session = res.session;
+  await syncDuelTag();
   updateSkillDom();
-  if (coins.length !== before) render();
+  if (coins.length !== before || info.defType !== undefined || info.canDuel !== undefined) { render(); return; }
 }
 
 function updateSkillDom() {
@@ -4007,6 +4050,103 @@ function removePlaced(zone, index, mid) {
   saveCode().catch((e) => toast(e.message, 'error'));
 }
 
+/* ---- 描述首行强制标签（可拼点守备 [DuelGuard] / 可拼点反击 [DuelCounter]） ---- */
+async function syncDuelTag() {
+  if (!S.skill) return;
+  const info = S.skill.info || {};
+  const dt = String(info.defType || 'ATTACK').toUpperCase();
+  const can = info.canDuel === true;
+  const want = !can ? '' : (dt === 'GUARD' ? '[DuelGuard]' : (dt === 'COUNTER' ? '[DuelCounter]' : ''));
+  const cur = String(S.skill.description || '');
+  const lines = cur.split('\n');
+  const first = String(lines[0] || '').trim();
+  const isTag = /^\[(DuelGuard|DuelCounter)\]$/.test(first);
+  let next = cur;
+  if (want) {
+    if (isTag) { if (first === want) return; lines[0] = want; next = lines.join('\n'); }
+    else next = want + (cur ? '\n' + cur : '');
+  } else if (isTag) { lines.shift(); next = lines.join('\n'); }
+  else return;
+  const res = await api('/api/skill/meta', { method: 'POST', body: { name: S.selected, id: S.skillId, description: next } });
+  S.skill = { ...S.skill, description: (res.meta && res.meta.description) || next };
+  S.session = res.session;
+}
+
+/* ---- 硬币：增 / 删 / 移动 ---- */
+function coinsOf() {
+  const code = (S.skill && S.skill.code) || {};
+  if (!Array.isArray(code.coins)) code.coins = [];
+  return code.coins;
+}
+function coinHasContent(c) {
+  if (!c) return false;
+  if (Array.isArray(c.modules) && c.modules.length) return true;
+  if (String(c.value || '') !== '' && Number(c.value) !== 0) return true;
+  return false;
+}
+async function addCoin() {
+  if (!S.skill) return;
+  const coins = coinsOf();
+  if (coins.length >= 9) { toast('编辑器内最多 9 枚硬币', 'warn'); return; }
+  coins.push({ color: 'GREY', value: 0, modules: [] });
+  await saveCode();
+}
+async function deleteCoin(index) {
+  if (!S.skill) return;
+  const coins = coinsOf();
+  if (coins.length <= 1) { toast('每个技能至少要有 1 枚硬币', 'warn'); return; }
+  const c = coins[index];
+  if (coinHasContent(c)) {
+    const ok = window.confirm('这枚硬币上还有内容（变动值或已置入模块），删除后这些内容会一起丢掉，且无法撤销。确认删除？');
+    if (!ok) return;
+  }
+  coins.splice(index, 1);
+  await saveCode();
+  toast('已删除硬币 ' + (index + 1), 'ok');
+}
+async function moveCoin(index, delta) {
+  if (!S.skill) return;
+  const coins = coinsOf();
+  const to = index + delta;
+  if (to < 0 || to >= coins.length) return;
+  const tmp = coins[index];
+  coins[index] = coins[to];
+  coins[to] = tmp;
+  await saveCode();
+}
+
+/* ---- Buff 图标上传（仅 PNG） ---- */
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(new Error('读取图片失败'));
+    fr.readAsDataURL(file);
+  });
+}
+async function uploadBuffIcon(file) {
+  if (!S.buff || !S.selected) return;
+  if (!/\.png$/i.test(file.name) && file.type !== 'image/png') { toast('只支持 PNG 图片', 'error'); return; }
+  const dataUrl = await readFileAsDataUrl(file);
+  const res = await api('/api/buff/icon', { method: 'POST', body: { name: S.selected, id: S.buff.id, dataUrl } });
+  S.buff = { ...S.buff, info: { ...(S.buff.info || {}), iconId: res.iconId } };
+  toast('图标已写入 ' + res.rel, 'ok');
+  render();
+}
+
+/* ---- 人格 ID 修改（二级页面输入 + 保存前查重） ---- */
+function openPersonalityIdModal() {
+  if (!S.personality) return;
+  const cur = String(S.personality.id);
+  modal({
+    title: '修改人格 ID',
+    body: '<div class="field"><span>新的 ID（4–10 位数字，会和其它 Mod / 原版查重）</span>'
+      + '<input id="p-id-new" value="' + esc(cur) + '" inputmode="numeric"></div>'
+      + '<div class="hint muted">改 ID 会同步改名：数据文件、custom_sprites 的 profile_/cg_、编辑器元数据。</div>',
+    footer: '<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="p-id-ok">确认修改</button>',
+  });
+}
+
 async function saveCode() {
   if (!S.skill) return;
   const code = S.skill.code || {};
@@ -4019,7 +4159,7 @@ async function saveCode() {
   S.skill = {
     ...S.skill,
     code: res.meta.code,
-    info: res.meta.info,
+    info: { ...(res.meta.info || {}), coinCount: codes.length },
     fileInfo: { ...(S.skill.fileInfo || {}), coinColors: cols.length ? cols : (S.skill.fileInfo || {}).coinColors },
   };
   render();
@@ -6916,6 +7056,7 @@ function renderBuffMain() {
     + sel('Buff 种类', 'buffClass', classes) + sel('正负 Buff', 'buffType', types)
     + field('最大强度', 'maxStack') + field('最大层数', 'maxTurn', 'number')
     + field('Buff 图像', 'iconId', 'text') + field('所属', 'special', 'text')
+    + '<label class="field"><span>图标文件（仅 PNG）</span><button class="btn ghost sm" data-act="b-icon">上传图标…</button><input type="file" id="b-icon-file" accept="image/png" style="display:none"></label>'
     + '</div>'
     + '<label class="field check"><input type="checkbox" data-binfo="canBeDespelled"' + (info.canBeDespelled !== false ? ' checked' : '') + '><span>可被净化</span></label>'
     + '<div class="hint muted">「所属」留空表示普通 Buff；填关键词表示该 Buff 的特殊归属。</div>'

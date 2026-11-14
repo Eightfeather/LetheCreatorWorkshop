@@ -1925,3 +1925,12 @@ body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
   margin-top: 16px;
   flex-wrap: wrap;
 }
+
+/* @coin-ops-v1 硬币增删/拖动、可拼点勾选 */
+.coin-head{position:relative;display:flex;align-items:center;gap:6px}
+.coin-drag{cursor:grab;color:#8d7b5e;user-select:none;font-size:13px;padding:0 2px}
+.coin-x{position:absolute;right:0;top:-2px;width:20px;height:20px;line-height:18px;border:1px solid #5c4a32;border-radius:4px;background:#2a2118;color:#e2c79a;cursor:pointer;font-size:13px}
+.coin-x:hover{border-color:#8C1F2B;color:#ffb3b3;background:#3a1d1d}
+.coin-add{margin-top:8px;width:100%}
+.coin-card[draggable="true"]{cursor:default}
+.sk-check{display:flex;align-items:center;gap:6px}

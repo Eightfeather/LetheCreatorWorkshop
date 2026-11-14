@@ -83,25 +83,31 @@ export function saveSkillFields(letheRoot, { name, id, info = {} } = {}) {
   if (info.physical) sd.atkType = String(info.physical);
   if (info.sin) sd.attributeType = String(info.sin);
 
+  // 技能类型（攻击/守备/反击/闪避）与可拼点：以前没写，反击/防御做不出来
+  const DEF_TYPES = new Set(['ATTACK', 'GUARD', 'COUNTER', 'EVADE']);
+  if (info.defType != null && info.defType !== '') {
+    const dt = String(info.defType).toUpperCase();
+    if (!DEF_TYPES.has(dt)) throw new SafetyError('技能类型只能是 攻击/守备/反击/闪避（收到 ' + info.defType + '）');
+    sd.defType = dt;
+  }
+  if (info.canDuel !== undefined && info.canDuel !== null && info.canDuel !== '') {
+    const want = (info.canDuel === true || info.canDuel === 'true' || info.canDuel === 1 || info.canDuel === '1');
+    if (String(sd.defType || 'ATTACK').toUpperCase() === 'EVADE' && want) {
+      throw new SafetyError('闪避技能不能设置为可拼点');
+    }
+    sd.canDuel = want;
+  }
+
   if (info.skillTier != null && info.skillTier !== '') {
     const t = Number(info.skillTier);
     if (Number.isFinite(t) && t >= 1 && t <= 3) ent.skillTier = Math.round(t);
         else if (Number.isFinite(t)) ent.skillTier = Math.min(3, Math.max(1, Math.round(t)));
   }
   const op = String(info.sign) === 'negative' ? 'SUB' : 'ADD';
-  const n = Number(info.coinCount);
-  if (Number.isFinite(n) && n >= 1 && n <= 12) {
-    sd.coinList = Array.isArray(sd.coinList) ? sd.coinList : [];
-    if (n < sd.coinList.length) {
-      const dropped = sd.coinList.slice(n).reduce((acc, c) => acc + (((c || {}).abilityScriptList || []).length), 0);
-      if (dropped > 0) {
-        throw new SafetyError('把硬币数量减到 ' + n + ' 会丢掉第 ' + (n + 1) + '–' + sd.coinList.length + ' 枚硬币上的 ' + dropped + ' 条脚本；请先清空这些硬币的脚本，或保持硬币数量不变');
-      }
-    }
-    while (sd.coinList.length < n) {
-      sd.coinList.push({ operatorType: op, color: 'GREY', scale: 3, prob: 0.5, abilityScriptList: [] });
-    }
-    if (sd.coinList.length > n) sd.coinList = sd.coinList.slice(0, n);
+  // 硬币增删只走硬币卡（/api/skill/code）；这里只保证至少 1 枚，绝不按 coinCount 截断
+  sd.coinList = Array.isArray(sd.coinList) ? sd.coinList : [];
+  while (sd.coinList.length < 1) {
+    sd.coinList.push({ operatorType: op, color: 'GREY', scale: 3, prob: 0.5, abilityScriptList: [] });
   }
   if (Array.isArray(sd.coinList)) {
     sd.coinList.forEach((c) => { if (c && typeof c === 'object') c.operatorType = op; });
@@ -123,11 +129,16 @@ export function saveSkillFields(letheRoot, { name, id, info = {} } = {}) {
     physical: String(sd.atkType || ''),
     sin: String(sd.attributeType || ''),
     sign: op === 'SUB' ? 'negative' : 'positive',
+    defType: String(sd.defType || 'ATTACK').toUpperCase(),
+    canDuel: sd.canDuel === true,
   } };
 }
 
-export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displayName, tier, scripts, code, description, coinDescs } = {}) {
-  const mod = String(name || '');
+export function saveCompiledSkill(letheRoot, body = {}) {
+  const { id, info = {}, tier, scripts, code, description, coinDescs } = body;
+  const mod = String(body.name || '');
+  // 以前写成 { name, id, info, name: displayName }，同一键声明两次 → displayName 恒为 Mod 名（F-03）
+  const displayName = String(body.displayName || body.skillName || '');
   const dir = modDirSafe(letheRoot, mod);
   const payload = readModPayload(dir);
   const found = findEntity(payload, 'skill', id);
@@ -143,6 +154,18 @@ export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displa
   if (info.targetNum != null) sd.targetNum = Number(info.targetNum);
   if (info.physical) sd.atkType = String(info.physical);
   if (info.sin) sd.attributeType = String(info.sin);
+
+  const DEF_TYPES2 = new Set(['ATTACK', 'GUARD', 'COUNTER', 'EVADE']);
+  if (info.defType) {
+    const dt = String(info.defType).toUpperCase();
+    if (!DEF_TYPES2.has(dt)) throw new SafetyError('技能类型只能是 攻击/守备/反击/闪避（收到 ' + info.defType + '）');
+    sd.defType = dt;
+  }
+  if (info.canDuel !== undefined && info.canDuel !== null && info.canDuel !== '') {
+    const want = (info.canDuel === true || info.canDuel === 'true' || info.canDuel === 1 || info.canDuel === '1');
+    if (String(sd.defType || 'ATTACK').toUpperCase() === 'EVADE' && want) throw new SafetyError('闪避技能不能设置为可拼点');
+    sd.canDuel = want;
+  }
 
   if (info.randomArea === 'random_last_all') {
     sd.isRandomAreaAttack = true;
@@ -167,8 +190,9 @@ export function saveCompiledSkill(letheRoot, { name, id, info = {}, name: displa
   sd.abilityScriptList = lines.map((scriptName) => ({ scriptName }));
 
   const codeCoins = (code && Array.isArray(code.coins)) ? code.coins : [];
-  const targetCount = info.coinCount != null ? Number(info.coinCount) : (codeCoins.length || (Array.isArray(sd.coinList) ? sd.coinList.length : 1));
-  const count = Math.max(1, Math.min(12, targetCount || 1));
+  // 硬币枚数以代码区（用户实际编辑的硬币卡）为准；info.coinCount 不再作为截断依据（F-02）
+  const targetCount = codeCoins.length || (Array.isArray(sd.coinList) ? sd.coinList.length : 1);
+  const count = Math.max(1, Math.min(9, targetCount || 1));
   const opType = info.sign === 'negative' ? 'SUB' : 'ADD';
 
   sd.coinList = Array.isArray(sd.coinList) ? sd.coinList : [];

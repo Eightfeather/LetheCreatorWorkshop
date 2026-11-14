@@ -12,11 +12,11 @@ import { checkHost, checkToken, readBody, sendError, sendJson, serveStatic } fro
 import { findGameFont } from '../lethe/gamefont.mjs';
 import { EditSession } from '../lethe/session.mjs';
 import { AutoSaver } from '../lethe/autosave.mjs';
-import { markCleanExit, markRunning } from '../lethe/state.mjs';
+import { markCleanExit, markRunning, readSessionMarker } from '../lethe/state.mjs';
 import { migrateToLcw } from '../lethe/lcw.mjs';
 import { assetBase64 } from '../assets.mjs';
 
-export const VERSION = '0.9.23';
+export const VERSION = '0.9.24';
 const WEB_ROOT = join(SRC_DIR, 'web');
 
 export function createServer({ token, state, log, session, autosave } = {}) {
@@ -130,7 +130,11 @@ export function startServer({ port = 3081, host = '127.0.0.1', explicit, locateN
   const startWarmup = () => { if (state.letheRoot) warmupCaches(state.letheRoot, log).catch(() => {}); };
 
   // 运行标记：下次启动可检测“未被正常关闭”
-  if (state.letheRoot) markRunning(state.letheRoot);
+  if (state.letheRoot) {
+    // 先记住上一次的标记，再写入本次 running（否则 /api/recover-check 只看到自己的 pid → 永不提示恢复）
+    try { state.prevSession = readSessionMarker(state.letheRoot); } catch { state.prevSession = null; }
+    markRunning(state.letheRoot);
+  }
   const finish = () => { try { if (state.letheRoot) markCleanExit(state.letheRoot); } catch { /* ignore */ } };
   process.once('SIGINT', () => { finish(); process.exit(0); });
   process.once('SIGTERM', () => { finish(); process.exit(0); });

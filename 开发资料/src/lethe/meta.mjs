@@ -147,12 +147,20 @@ function padCoins(coins, count) {
   }));
 }
 
+export function assertCoinCount(n, label = '硬币数量') {
+  const v = Number(n);
+  if (!Number.isInteger(v) || v < 1 || v > 9) throw new SafetyError(label + '只能是 1–9 的整数（收到 ' + n + '）');
+  return v;
+}
+
 function normalizeSkillMeta(doc, id) {
   const src = doc && typeof doc === 'object' ? doc : {};
   const info = { ...DEFAULT_INFO, ...(src.info || {}) };
-  const count = Math.max(1, Math.min(12, Number(info.coinCount) || 1));
-  info.coinCount = count;
   const code = src.code && typeof src.code === 'object' ? src.code : {};
+  // 硬币枚数以代码区为准（用户实际编辑的硬币卡）；coinCount 只是派生显示值，避免再用它截断硬币（F-02）
+  const rawCoins = Array.isArray(code.coins) ? code.coins : [];
+  const count = Math.max(1, Math.min(9, rawCoins.length));
+  info.coinCount = count;
   return {
     version: META_VERSION,
     id: String(id),
@@ -217,7 +225,9 @@ export function writeSkillCode(letheRoot, mod, id, code = {}) {
   const before = existsSync(p) ? readFileSync(p, 'utf8') : null;
   const prev = readJson(p, null) || {};
   const prevCoins = prev.code && Array.isArray(prev.code.coins) ? prev.code.coins : [];
-  const count = Math.max(1, Math.min(12, Number(code.coinCount) || (code.coins ? code.coins.length : prevCoins.length) || 1));
+  const given = Array.isArray(code.coins);
+  const rawCount = given ? code.coins.length : prevCoins.length;
+  const count = assertCoinCount(rawCount);
   const doc = {
     version: META_VERSION,
     id: String(id),

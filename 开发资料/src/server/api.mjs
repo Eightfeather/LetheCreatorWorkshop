@@ -20,8 +20,8 @@ import { restoreFromSlot, slotInfo } from '../lethe/snapshot.mjs';
 import { homeStats } from '../lethe/stats.mjs';
 import { createSkill, getSkill, importSkills, listSkills, searchSkillIndex, skillsOfVanillaPersonality, clearSkillCache, skillExistsAnywhere } from '../lethe/skills.mjs';
 import { BUFF_CLASSES, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, skillCodePath } from '../lethe/meta.mjs';
-import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex } from '../lethe/passives.mjs';
-import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex } from '../lethe/buffs.mjs';
+import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex, clearPassiveCache } from '../lethe/passives.mjs';
+import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex, writeBuffIcon, clearBuffCache } from '../lethe/buffs.mjs';
 import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestCandidates, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
 import { TIMING_ARGS } from '../knowledge/timing-args.mjs';
 import { canonicalCode, parseScripts } from '../lethe/program-parse.mjs';
@@ -50,6 +50,23 @@ function listModulesWithCode(letheRoot) {
     }
     return { ...m, code };
   });
+}
+
+/** 人格 ID 变更后的联动改名：实体文件、custom_sprites 的 profile_/cg_、LCW 元数据 */
+function renamePersonalityArtifacts(letheRoot, mod, oldId, newId) {
+  const dir = modDirSafe(letheRoot, mod);
+  const out = [];
+  const tryRename = (from, to) => {
+    try {
+      if (fs.existsSync(from) && !fs.existsSync(to)) { fs.renameSync(from, to); out.push(to); }
+    } catch { /* ignore */ }
+  };
+  tryRename(join(dir, 'custom_limbus_data', 'personality', oldId + '.json'), join(dir, 'custom_limbus_data', 'personality', newId + '.json'));
+  const spDir = join(dir, 'custom_sprites');
+  for (const k of ['profile', 'cg']) tryRename(join(spDir, k + '_' + oldId + '.png'), join(spDir, k + '_' + newId + '.png'));
+  const metaDir = join(letheRoot, 'LCW', 'projects', 'personalities', mod);
+  tryRename(join(metaDir, oldId + '.json'), join(metaDir, newId + '.json'));
+  return out;
 }
 
 function ensureRoot(state) {
@@ -469,7 +486,7 @@ export function buildApi(ctx) {
     /* ---------- 崩溃恢复 ---------- */
     'GET /api/recover-check': () => {
       const { letheRoot } = need();
-      const marker = readSessionMarker(letheRoot);
+      const marker = state.prevSession || readSessionMarker(letheRoot);
       const unclean = Boolean(marker && marker.running && marker.pid !== process.pid);
       const mods = [];
       try {
@@ -744,7 +761,7 @@ export function buildApi(ctx) {
 
     'POST /api/personality/update-id': async (body) => {
       const { letheRoot } = need();
-      const mod = cleanName(body.name, 'Mod 名称');
+      const mod = String(body.name || '');
       const oldId = String(body.oldId || '').trim();
       const newId = String(body.newId || '').trim();
       if (!oldId || !newId) throw new SafetyError('缺少参数');
@@ -781,8 +798,9 @@ export function buildApi(ctx) {
       }
 
       writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+      const renamed = renamePersonalityArtifacts(letheRoot, mod, oldId, newId);
       clearUnitCache();
-      return { ok: true, id: newId };
+      return { ok: true, id: newId, renamed };
     },
 
     'POST /api/personality/create': async (body) => {
@@ -1232,6 +1250,12 @@ export function buildApi(ctx) {
       return { ok: true, applied: res.scripts, missing: res.missing || [], backups: res.backups || [] };
     },
 
+    'POST /api/buff/icon': async (body) => {
+      const { letheRoot } = need();
+      const res = writeBuffIcon(letheRoot, body.name, String(body.id), { dataUrl: body.dataUrl, iconId: body.iconId });
+      return { ok: true, ...res };
+    },
+
     'POST /api/module/delete': (body) => {
       const { letheRoot } = need();
       return { ok: true, ...deleteModule(letheRoot, body.id, { allowTest: !!body.allowTest }) };
@@ -1298,6 +1322,7 @@ export function buildApi(ctx) {
     'POST /api/passive/create': (body) => {
       const { letheRoot } = need();
       const created = createPassive(letheRoot, { name: body.name, id: body.id, displayName: body.displayName, desc: body.desc });
+      clearPassiveCache(letheRoot);
       return { ok: true, passive: { id: created.id, entity: created.entity, locale: created.locale }, written: created.written };
     },
 
@@ -1473,6 +1498,7 @@ export function buildApi(ctx) {
     'POST /api/buff/create': (body) => {
       const { letheRoot } = need();
       const created = createBuff(letheRoot, { name: body.name, id: body.id, displayName: body.displayName, desc: body.desc, info: body.info });
+      clearBuffCache(letheRoot);
       return { ok: true, buff: { id: created.id, entity: created.entity, locale: created.locale }, written: created.written };
     },
 

@@ -225,6 +225,41 @@ export function importBuffs(letheRoot, { name, ids, source = { kind: 'vanilla' }
   return { imported: list, ...result };
 }
 
+/**
+ * 写 Buff 图标：只接受 PNG dataURL；落 custom_sprites/buffIcon_<iconId>.png，
+ * 并把实体 iconId 指过去；同时保证 custom_buffs/<id>.txt 存在（自定义 buff 必须在这里注册关键词）。
+ */
+export function writeBuffIcon(letheRoot, modName, id, { dataUrl, iconId }) {
+  const mod = String(modName || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const bid = String(id || '');
+  const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
+  if (!m) throw new SafetyError('只接受 PNG 图片');
+  const buf = Buffer.from(m[1], 'base64');
+  if (buf.length < 8 || buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4e || buf[3] !== 0x47) {
+    throw new SafetyError('只接受 PNG 图片');
+  }
+  const payload = readModPayload(dir);
+  const rows = (payload.data && payload.data.buff) || [];
+  const found = rows.find((r) => String(r.id) === bid);
+  if (!found) throw new SafetyError('在 Mod 里找不到 Buff ' + bid);
+  const absFile = join(dir, ...String(found.rel).split('/'));
+  const doc = readJson(absFile, null);
+  if (!doc) throw new SafetyError('读取 Buff 文件失败：' + found.rel);
+  const list = entitiesOf(doc);
+  const ent = list[found.index];
+  if (!ent || String(ent.id) !== bid) throw new SafetyError('在 Mod 里找不到 Buff ' + bid);
+  const iid = String(iconId || ent.iconId || bid).replace(/[^A-Za-z0-9_]/g, '');
+  ent.iconId = iid;
+  const files = [{ rel: found.rel, content: JSON.stringify(doc, null, 2) }];
+  const txtRel = 'custom_buffs/' + bid + '.txt';
+  if (!existsSync(join(dir, txtRel))) files.push({ rel: txtRel, content: '' });
+  files.push({ rel: 'custom_sprites/buffIcon_' + iid + '.png', content: buf });
+  const res = writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+  clearBuffCache(letheRoot);
+  return { iconId: iid, rel: 'custom_sprites/buffIcon_' + iid + '.png', written: res.written };
+}
+
 export function patchBuffMeta(letheRoot, modName, id, patch) {
   const change = writeBuffMeta(letheRoot, modName, id, patch);
   return { change, meta: change.doc };
