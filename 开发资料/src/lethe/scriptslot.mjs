@@ -118,8 +118,15 @@ export function writeSlotTexts(letheRoot, { name, kind, id, where = 'main', coin
     if (!Array.isArray(ent.skillData)) ent.skillData = [];
     const seg = (ent.skillData[0] = ent.skillData[0] || {});
     if (String(where) === 'coin') {
-      const ci = Number(coin) || 0;
+      const ciRaw = Number(coin);
+      if (!Number.isInteger(ciRaw) || ciRaw < 0) {
+        throw new SafetyError('硬币序号不合法（收到 ' + String(coin) + '）');
+      }
+      const ci = ciRaw;
       if (!Array.isArray(seg.coinList)) seg.coinList = [];
+      if (seg.coinList.length > 0 && ci >= seg.coinList.length) {
+        throw new SafetyError('硬币序号超出范围（这个技能只有 ' + seg.coinList.length + ' 枚硬币，收到第 ' + (ci + 1) + ' 枚）');
+      }
       const c = (seg.coinList[ci] = seg.coinList[ci] || {});
       const old = Array.isArray(c.abilityScriptList) ? c.abilityScriptList : [];
       c.abilityScriptList = list.map((t, i) => (old[i] && String(old[i].scriptName || '') === t ? old[i] : { scriptName: t }));

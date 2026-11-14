@@ -3637,7 +3637,7 @@ async function saveSlots(kind, zone, coin) {
   if (!doc) return;
   const where = zone === 'coin' ? 'coin' : (zone === 'skill' ? 'skill' : 'main');
   const texts = slotsOfZone(kind, zone, coin).map((s) => String(s.text || ''));
-  await api('/api/script/slots', { method: 'POST', body: { name: S.selected, kind, id: doc.id, where, coin: Number(coin) || -1, texts } });
+  await api('/api/script/slots', { method: 'POST', body: { name: S.selected, kind, id: doc.id, where, coin: where === 'coin' ? Number(coin) : -1, texts } });
   if (kind === 'skill') await reloadSkill();
   else if (kind === 'passive') await reloadPassive();
   else await reloadBuff();
