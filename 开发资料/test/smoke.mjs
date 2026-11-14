@@ -126,9 +126,9 @@ async function main() {
     const openKind = async (kind, sel) => {
       // 先回向导首页（人格/技能等编辑器进入后，向导卡不在 DOM 里）
       await client.evalJs('document.querySelector(\'.dock-item[data-view="edit"]\').click(); true');
-      await wait(450);
-      await client.evalJs(`(document.querySelector('.wiz[data-kind="${kind}"]') || {click(){}}).click(); true`);
       await wait(900);
+      await client.evalJs(`(document.querySelector('.wiz[data-kind="${kind}"]') || {click(){}}).click(); true`);
+      await wait(1800);
       return client.evalJs(`({ek: window.__WBS.editKind, has: Boolean(document.querySelector('${sel}')), n: document.querySelectorAll('${sel}').length})`);
     };
     const p = await openKind('personality', '[data-act="pick-sinner"]');
