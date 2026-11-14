@@ -3641,6 +3641,13 @@ async function saveSlots(kind, zone, coin) {
   if (kind === 'skill') await reloadSkill();
   else if (kind === 'passive') await reloadPassive();
   else await reloadBuff();
+  // 置入/移除后立刻重绘置入区：reload* 只更新 S.skill/S.passive/S.buff，不重绘 DOM，
+  // 否则要等下一次 render（保存/切页/重开）才看到结果。
+  if ((kind === 'skill' && S.skill && String(S.skill.id) === String(doc.id))
+    || (kind === 'passive' && S.passive && String(S.passive.id) === String(doc.id))
+    || (kind === 'buff' && S.buff && String(S.buff.id) === String(doc.id))) {
+    render();
+  }
 }
 
 async function addSlotFromModule(kind, zone, coin, mid) {
