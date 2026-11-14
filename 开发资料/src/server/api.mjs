@@ -36,6 +36,7 @@ import { SCOPES, TIMING_SCOPE, COMMAND_SCOPE, TIMING_CONTAINERS, COMMAND_CONTAIN
 import { createApi } from './api-shared.mjs';
 import { compileProgram, compileTimingRows } from '../lethe/program.mjs';
 import { saveCompiledBuff, saveCompiledPassive, saveCompiledSkill, savePassiveFields, saveSkillFields, saveBuffScripts, saveBuffFields } from '../lethe/apply.mjs';
+import { readRenderFlags, writeRenderFlags } from '../lethe/renderflags.mjs';
 
 
 function listModulesWithCode(letheRoot) {
@@ -358,6 +359,10 @@ export function buildApi(ctx) {
       const res = deleteModEverywhere(letheRoot, body.name);
       return { ok: true, ...res, mods: listMods(letheRoot) };
     },
+
+    'GET /api/render': () => ({ ok: true, render: readRenderFlags() }),
+
+    'POST /api/render': (body) => ({ ok: true, render: writeRenderFlags(body || {}) }),
 
     'POST /api/config': async (body) => {
       state.config = saveConfig(body || {});

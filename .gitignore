@@ -36,3 +36,4 @@ desktop.ini
 # 本地产物
 *.zip
 /_*.mjs
+/_commit-msg.txt

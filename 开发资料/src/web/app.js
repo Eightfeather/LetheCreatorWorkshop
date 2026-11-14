@@ -1,3 +1,62 @@
+/* @boot-guard-v1: 任何启动/运行期异常都要在界面上可见，而不是停在黑屏 */
+(function bootGuard() {
+  const VERSION = 'v1';
+  function fatalEl() {
+    let el = document.getElementById('boot-fatal');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'boot-fatal';
+    el.innerHTML =
+      '<div class="bf-card">' +
+      '<div class="bf-kicker">THE LETHE WORKBENCH</div>' +
+      '<h2 class="bf-title"></h2>' +
+      '<pre class="bf-detail"></pre>' +
+      '<div class="bf-actions">' +
+      '<button class="btn primary" data-bf="retry">重试</button>' +
+      '<button class="btn ghost" data-bf="compat">以兼容渲染重启</button>' +
+      '<button class="btn ghost" data-bf="copy">复制诊断信息</button>' +
+      '</div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function (ev) {
+      const b = ev.target.closest('[data-bf]');
+      if (!b) return;
+      const act = b.dataset.bf;
+      if (act === 'retry') location.reload();
+      else if (act === 'compat') {
+        fetch('/api/render', { method: 'POST', headers: { 'content-type': 'application/json', 'x-wb-token': window.__WB_TOKEN__ || '' }, body: JSON.stringify({ disableGpu: true }) })
+          .catch(function () {})
+          .then(function () { show('已切换兼容渲染，请关闭本窗口后重新打开编辑器', '重启后生效'); });
+      } else if (act === 'copy') {
+        const text = (window.__WB_FATAL_DETAIL || '') + '\n' + VERSION;
+        try { navigator.clipboard.writeText(text); } catch (e) {}
+      }
+    });
+    return el;
+  }
+  function show(title, detail) {
+    try {
+      const el = fatalEl();
+      el.querySelector('.bf-title').textContent = title;
+      el.querySelector('.bf-detail').textContent = detail || '';
+      window.__WB_FATAL_DETAIL = (title + '\n\n' + (detail || ''));
+      el.style.display = 'flex';
+    } catch (e) { /* 连兜底都失败就放弃 */ }
+  }
+  window.__WBFatal = show;
+  window.addEventListener('error', function (e) {
+    show('界面脚本出错', ((e.error && e.error.stack) || e.message || '未知错误') + (e.filename ? '\n' + e.filename + ':' + e.lineno : ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    const r = e.reason;
+    show('有一个异步操作失败', String((r && (r.stack || r.message)) || r || '未知原因'));
+  });
+  setTimeout(function () {
+    if (!window.__WBS || !window.__WBS.status) {
+      show('界面在 12 秒内没有启动完成', '可能原因：本地后端未就绪、脚本报错、或 WebView2 渲染异常。\n点「重试」重新加载；若仍失败，点「以兼容渲染重启」。');
+    }
+  }, 12000);
+})();
+
 /* The Lethe Workbench · 前端主程序 v0.2 */
 const TOKEN = window.__WB_TOKEN__ || '';
 
@@ -136,6 +195,7 @@ function closeModal() {
 
 async function loadStatus() {
   S.status = await api('/api/status');
+  try { const rr = await api('/api/render'); S.renderFlags = rr.render || null; } catch (e) { S.renderFlags = null; }
   S.listCollapsed = Boolean(S.status.ui?.listCollapsed);
   $('#st-version').textContent = `v${S.status.version}`;
 }
@@ -1684,6 +1744,9 @@ function openSettings() {
           </select>
         </label>
       </div>
+      <div class="grid-2" style="margin-top:10px">
+        <label class="field check"><input type="checkbox" id="set-compat" ${S.renderFlags && S.renderFlags.disableGpu ? 'checked' : ''}><span>兼容渲染（软件渲染，重启后生效；画面异常/黑屏时打开）</span></label>
+      </div>
       <div class="hint muted">当前 Lethe：${esc(st.letheRoot || '（未定位）')}<br>配置文件：${esc(st.configPath || '')}</div>`,
     footer: `<button class="btn ghost" data-act="close-modal">取消</button><button class="btn primary" data-act="save-settings">保存设置</button>`,
   });
@@ -2496,6 +2559,13 @@ const actions = {
     const editorName = $('#set-editor')?.value || '但丁';
     const theme = $('#set-theme')?.value || 'dark';
     const fm = $('#set-font-mode')?.value || fontMode();
+    const compat = document.getElementById('set-compat');
+    if (compat) {
+      try {
+        const r2 = await api('/api/render', { method: 'POST', body: { disableGpu: compat.checked } });
+        S.renderFlags = r2.render || null;
+      } catch (e) { toast('兼容渲染设置未能保存：' + e.message, 'warn'); }
+    }
     applyFontMode(fm);
     const res = await api('/api/config', { method: 'POST', body: { editorName, theme, fontMode: fm } });
     S.status = { ...S.status, editorName, theme };

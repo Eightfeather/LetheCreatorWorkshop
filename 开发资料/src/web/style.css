@@ -1873,3 +1873,55 @@ body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
 .bk.bk-raw{border-color:#8a6a3a;background:#2a2416}
 .bk .bk-rawtext{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#E8DCC6;background:rgba(0,0,0,.25);padding:2px 6px;border-radius:3px;margin-left:6px}
 /* @slot-stack-v1:end */
+
+/* @boot-fatal-v1 */
+#boot-fatal {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 16, 14, 0.97);
+  padding: 32px;
+}
+#boot-fatal .bf-card {
+  max-width: 860px;
+  width: 100%;
+  border: 1px solid #6b5430;
+  background: #1c1714;
+  padding: 26px 28px 22px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+#boot-fatal .bf-kicker {
+  font-family: Georgia, serif;
+  letter-spacing: 0.22em;
+  font-size: 11px;
+  color: #c6a15b;
+}
+#boot-fatal .bf-title {
+  margin: 10px 0 14px;
+  font-size: 20px;
+  color: #f1e4c9;
+  font-weight: 700;
+}
+#boot-fatal .bf-detail {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #a79780;
+  background: #12100e;
+  border: 1px solid #33291f;
+  padding: 12px 14px;
+}
+#boot-fatal .bf-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
