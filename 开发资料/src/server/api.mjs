@@ -19,7 +19,7 @@ import { autoBackupsDir, journalDir, markCleanExit, markRunning, readSessionMark
 import { restoreFromSlot, slotInfo } from '../lethe/snapshot.mjs';
 import { homeStats } from '../lethe/stats.mjs';
 import { createSkill, deleteSkill, getSkill, importSkills, listSkills, searchSkillIndex, skillsOfVanillaPersonality, clearSkillCache, skillExistsAnywhere } from '../lethe/skills.mjs';
-import { BUFF_CLASSES, BUFF_CLASS_COMPAT, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, skillCodePath } from '../lethe/meta.mjs';
+import { BUFF_CLASSES, BUFF_CLASS_COMPAT, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, coinReadColor, skillCodePath } from '../lethe/meta.mjs';
 import { createPassive, deletePassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex, clearPassiveCache } from '../lethe/passives.mjs';
 import { createBuff, deleteBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex, writeBuffIcon, clearBuffCache } from '../lethe/buffs.mjs';
 import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestCandidates, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
@@ -1027,7 +1027,7 @@ export function buildApi(ctx) {
               skillTier: Number(one.entity.skillTier) || 1,
               coinValues: coins0.map((c) => Number((c || {}).scale) || 0),
               coinOps: coins0.map((c) => String((c || {}).operatorType || '').toUpperCase()),
-              coinColors: coins0.map((c) => String((c || {}).color || 'GREY').toUpperCase()),
+              coinColors: coins0.map((c) => coinReadColor(c)),
             };
           })(),
           coinTotal: ((((one.entity || {}).skillData) || [])[0] || {}).coinList ? ((((one.entity || {}).skillData) || [])[0].coinList || []).length : 0,

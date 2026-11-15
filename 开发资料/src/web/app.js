@@ -3271,8 +3271,8 @@ document.addEventListener('mousemove', (e) => {
   const g = document.getElementById('drag-ghost');
   if (g) { g.style.left = (e.clientX + 14) + 'px'; g.style.top = (e.clientY + 10) + 'px'; }
   const hit = document.elementFromPoint(e.clientX, e.clientY);
-  const zone = hit && hit.closest ? hit.closest('.drop-zone') : null;
-  document.querySelectorAll('.drop-zone.drop-hot').forEach((z) => { if (z !== zone) z.classList.remove('drop-hot'); });
+  const zone = hit && hit.closest ? hit.closest('.drop-zone, [data-mb-ctdrop], [data-mb-loopdrop], .mb-loop-slot') : null;
+  document.querySelectorAll('.drop-zone.drop-hot, .drop-hot').forEach((z) => { if (z !== zone) z.classList.remove('drop-hot'); });
   if (zone) zone.classList.add('drop-hot');
 });
 document.addEventListener('mouseup', (e) => {
@@ -5218,13 +5218,19 @@ function mbStmtHtml(b, idStr) {
     if (args.includes('key')) argHtml += '<input class="mb-hat-sel" data-mb-key="' + esc(idStr) + '" list="mb-key-list" placeholder="按键" value="' + esc(b.key || '') + '">';
     const kids = (b.body || []).map((x, i) => mbStmtHtml(x, idStr + '.' + i)).join('');
     const loopNode = b.loop && (b.loop.t === 'target' || b.loop.v) ? b.loop : null;
-    const loopLabel = loopNode ? (mbTargetLabel(loopNode) + (loopNode.c ? ' · 数量 ' + loopNode.c : '')) : '无';
+    const loopOn = Boolean(b.loopReady || loopNode);
+    const loopLabel = loopNode ? (mbTargetLabel(loopNode) + (loopNode.c ? ' · 数量 ' + loopNode.c : '')) : '拖目标进来';
     const locked = mbIsLocked(idStr);
     return '<div class="bk hat bk-timing' + selCls(idStr) + (locked ? ' locked' : '') + '" data-mb-bk="' + esc(idStr) + '"' + (locked ? ' title="这一行已被手动改写：积木已锁定，只能整块移动或删除"' : '') + '>' + mbDotHtml(idStr)
       + (locked ? '<span class="bk-lock" title="已被手改锁定">🔒</span>' : '')
       + '<div class="bk-hat-head"><span class="bk-hat-ico">⚑</span><span class="bk-hat-name">' + esc(zh) + '</span>'
       + '<span class="mb-loop-wrap"><span class="mb-loop-label">遍历</span>'
-      + '<button class="mb-loop-slot' + (loopNode ? ' on' : '') + '" data-act="mb-loop-slot" data-mb-loop="' + esc(idStr) + ':loop" data-chain="' + esc(idStr) + ':loop" title="本行整段脚本的 Target 会被逐个替换（引擎的 LOOP 是整条脚本级）；点一下清空">' + esc(loopLabel) + '</button></span>'
+      + (loopOn
+        ? '<span class="mb-loop-block on"><span class="mb-loop-ico">↻</span><span class="mb-loop-txt">对每个</span>'
+          + '<span class="slot slot-req mb-loop-drop' + (loopNode ? '' : ' is-empty') + '" data-mb-loopdrop="' + esc(idStr) + ':loop" title="拖一个「目标」或「自定义目标」进来">' + esc(loopLabel) + '</span>'
+          + '<span class="mb-loop-txt">循环</span>'
+          + '<button class="mb-loop-off" data-act="mb-loop-off" data-chain="' + esc(idStr) + ':loop" title="移除遍历块">×</button></span>'
+        : '<button class="mb-loop-slot" data-act="mb-loop-slot" data-mb-loop="' + esc(idStr) + ':loop" data-chain="' + esc(idStr) + ':loop" title="从左侧「目标」分类把「遍历」积木拖到这里">从左侧拖「遍历」进来</button>') + '</span>'
       + '<span class="bk-tag">TIMING</span></div>'
       + (argHtml ? '<div class="mb-hat-args">' + argHtml + '</div>' : '')
       + '<div class="bk-body" data-stack="' + esc(idStr) + '">' + (kids || '<div class="mb-stack-empty">把积木拖到这里（与此时点同属一段代码）</div>') + '</div></div>';
@@ -5304,11 +5310,8 @@ function mbPaletteHtml() {
         items.push('<button class="mb-item mi-target" data-mb-drag="value" data-mb-kind="target" data-mb-val="' + esc(t.n) + '"><b>' + esc(t.zh) + '</b><small>' + esc(t.n) + '</small></button>');
       }
     }
-        const lt = S.mb.loopTarget;
-    const ltHtml = lt ? esc(mbTargetLabel(lt)) : '<i><b class="slot-flag-req">必填</b>目标</i>';
-    items.unshift('<div class="mb-item mi-loop' + (lt ? ' has-target' : '') + '" data-mb-drag="value" data-mb-kind="loop" role="button" tabindex="0">'
-      + '<div class="mi-loop-head"><b>遍历（自定义目标）</b><small>拖到时点右侧「遍历」槽 · 目标拖进下面空位</small></div>'
-      + '<span class="slot slot-req slot-loop-card" data-mb-slot="palette:loop" title="拖一个目标积木到这里">' + ltHtml + '</span></div>');
+        items.unshift('<div class="mb-item mi-loop" data-mb-drag="value" data-mb-kind="loop" role="button" tabindex="0">'
+      + '<div class="mi-loop-head"><b>遍历</b><small>整块拖进时点右侧「遍历」位，再把目标拖进块内空位</small></div></div>');
     items.unshift('<button class="mb-item mi-ctarget" data-mb-drag="value" data-mb-kind="ctarget"><b>自定义目标</b><small>修饰标签 / 数量 / 单位 ID / $ 关键词（整体嵌套）</small></button>');
   } else if (cat === 'var') {
     items = MB_VARS.filter((v) => match(v))
@@ -5436,6 +5439,7 @@ function mbMissingInfo() {
         });
       }
       if (b.k === 'assign' && !b.val) push(idStr, '赋值的结果值');
+      if (b.k === 'timing' && b.loopReady && !b.loop) push(idStr, '遍历块里的目标');
       if (b.body) walk(b.body, idStr);
     });
   };
@@ -5783,7 +5787,7 @@ function mbPayloadFrom(el) {
     if (kind === 'cons') return { type: 'stmt', node: { k: 'cons', n: val, a: new Array(mbArgCount('consequence', val)).fill(null) } };
     if (kind === 'assign') return { type: 'stmt', node: { k: 'assign', var: 'VALUE_0', val: null } };
   } else {
-    if (kind === 'loop') return { type: 'value', loop: true, node: (S.mb && S.mb.loopTarget) ? S.mb.loopTarget : null };
+    if (kind === 'loop') return { type: 'loop' };
     if (kind === 'target') return { type: 'value', node: { t: 'target', n: val, c: null } };
     if (kind === 'ctarget') return { type: 'value', node: mbNewCustomTarget() };
     if (kind === 'var') return { type: 'value', node: { t: 'var', n: val } };
@@ -6028,17 +6032,22 @@ function mbDropResolve(x, y, payload) {
   const el = document.elementFromPoint(x, y);
   if (!el) return false;
   const geoSlot = mbSlotAt(x, y);
-  if (payload.loop) {
-    if (!payload.node) { toast('先往「遍历（自定义目标）」卡片里拖一个目标，再把它拖进时点右侧的遍历槽', 'warn'); return false; }
-    const slotEl = el.closest('[data-mb-loop]') || (geoSlot && geoSlot.closest('[data-mb-loop]'));
-    if (!slotEl) { toast('遍历块只能放到时点块右侧的「遍历」槽里', 'warn'); return false; }
-    return mbSetSlot(slotEl.dataset.mbLoop, payload.node);
+  const loopSlotEl = (el.closest && el.closest('[data-mb-loop]')) || (geoSlot && geoSlot.closest('[data-mb-loop]'));
+  if (payload.type === 'loop') {
+  if (!loopSlotEl) { toast('遍历块只能放到时点块右侧的「遍历」位里', 'warn'); return false; }
+  const stt = mbStmt(String(loopSlotEl.dataset.mbLoop || '').replace(/:loop$/, ''));
+  if (!stt) return false;
+  stt.loopReady = true;
+  render(); toast('遍历块已放入，把「目标」拖进块内空位', 'ok'); return true;
   }
-  const loopHit = (el.closest && el.closest('[data-mb-loop]')) || (geoSlot && geoSlot.closest('[data-mb-loop]'));
-  if (loopHit && payload.type === 'value' && payload.node) {
-    if (mbValueType(payload.node) !== 'target') { toast('遍历槽只能放目标积木', 'warn'); return false; }
-    if (!mbSetSlot(loopHit.dataset.mbLoop, payload.node)) return false;
-    render(); toast('遍历目标已设为 ' + mbTargetLabel(payload.node), 'ok'); return true;
+  const loopDrop = (el.closest && el.closest('[data-mb-loopdrop]')) || (geoSlot && geoSlot.closest('[data-mb-loopdrop]'));
+  if (loopDrop && payload.type === 'value' && payload.node) {
+  if (mbValueType(payload.node) !== 'target') { toast('遍历块里只能放「目标 / 自定义目标」', 'warn'); return false; }
+  if (!mbSetSlot(loopDrop.dataset.mbLoopdrop, payload.node)) return false;
+  render(); toast('遍历目标已设为 ' + mbTargetLabel(payload.node), 'ok'); return true;
+  }
+  if (loopSlotEl && payload.type === 'value') {
+  toast('遍历位只能放「遍历」积木：请先从左侧「目标」分类把「遍历」拖进来', 'warn'); return false;
   }
   const slot = el.closest('.slot') || el.closest('[data-mb-slot]') || geoSlot;
   if (slot && mbSlotChain(slot) === 'palette:loop') {
@@ -6090,8 +6099,24 @@ function mbOverTrash(x, y) {
 
 /* ===== @mb-help-v1 ===== 长按 W 的「俺寻思这个按键是……」帮助窗口 ===== */
 function mbHelpTargetAt(el) {
-  if (!el || !el.closest) return null;
-  const loop = el.closest('.mb-loop-slot');
+if (!el || !el.closest) return null;
+const pal = el.closest('.mb-pal [data-mb-drag]');
+if (pal) {
+const k = pal.dataset.mbKind || '';
+const val = pal.dataset.mbVal || '';
+if (k === 'cons') return { kind: 'consequence', name: val };
+if (k === 'acq') return { kind: 'acquirer', name: val };
+if (k === 'timing') return { kind: 'timing', name: val };
+if (k === 'loop') return { kind: 'loop', name: '' };
+if (k === 'ctarget') return { kind: 'ctarget', name: '' };
+if (k === 'target') return { kind: 'target', name: val };
+if (k === 'tag') return { kind: 'tag', name: val };
+if (k === 'var') return { kind: 'var', name: val };
+if (k === 'if' || k === 'ifnot' || k === 'continueif') return { kind: k, name: '' };
+if (k === 'assign') return { kind: 'assign', name: '' };
+return null;
+}
+const loop = el.closest('.mb-loop-slot, .mb-loop-block');
   if (loop && loop.dataset.mbLoop) return { kind: 'loop', name: '' };
   const bk = el.closest('[data-mb-bk]');
   if (bk) {
@@ -6252,10 +6277,16 @@ function mbBindDrag() {
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const slot = el && el.closest('.slot');
     const stackEl = el && el.closest('[data-stack]');
+    const loopSlotEl = el && el.closest('.mb-loop-slot');
+    const ctZone = el && el.closest('[data-mb-ctdrop]');
     const trashEl = document.getElementById('mb-trash');
     if (trashEl) { if (mbOverTrash(e.clientX, e.clientY)) trashEl.classList.add('hot'); else trashEl.classList.remove('hot'); }
-    if (d.payload.type === 'value') { if (slot) slot.classList.add('mb-hot'); }
-    else if (stackEl) stackEl.classList.add('mb-hot');
+    if (d.payload.type === 'value') {
+      if (slot) slot.classList.add('mb-hot');
+      if (ctZone) ctZone.classList.add('mb-hot');
+    } else if (d.payload.type === 'loop') {
+      if (loopSlotEl) loopSlotEl.classList.add('mb-hot');
+    } else if (stackEl) stackEl.classList.add('mb-hot');
   });
 
   document.addEventListener('mouseup', (e) => {
@@ -6331,17 +6362,18 @@ function mbCanvasClick(e) {
   if (!S.mb || !S.mb.carry) return false;
   const carry = S.mb.carry;
   const geoSlot = mbSlotAt(e.clientX, e.clientY);
-  if (carry.loop) {
-    const slotEl = e.target.closest('[data-mb-loop]') || (geoSlot && geoSlot.closest('[data-mb-loop]'));
-    if (!slotEl) { toast('先点时点块右侧的「遍历」槽', 'warn'); return false; }
-    if (!mbSetSlot(slotEl.dataset.mbLoop, carry.node)) return false;
-    S.mb.carry = null; render(); return true;
+  const loopSlot2 = (e.target.closest && e.target.closest('[data-mb-loop]')) || (geoSlot && geoSlot.closest('[data-mb-loop]'));
+  if (carry.type === 'loop') {
+  if (!loopSlot2) { toast('遍历块只能放到时点块右侧的「遍历」位里', 'warn'); return false; }
+  const stt2 = mbStmt(String(loopSlot2.dataset.mbLoop || '').replace(/:loop$/, ''));
+  if (!stt2) return false;
+  stt2.loopReady = true; S.mb.carry = null; render(); toast('遍历块已放入，把「目标」拖进块内空位', 'ok'); return true;
   }
-  const loopHit2 = (e.target.closest && e.target.closest('[data-mb-loop]')) || (geoSlot && geoSlot.closest('[data-mb-loop]'));
-  if (loopHit2 && carry.type === 'value' && carry.node) {
-    if (mbValueType(carry.node) !== 'target') { toast('遍历槽只能放目标积木', 'warn'); return false; }
-    if (!mbSetSlot(loopHit2.dataset.mbLoop, carry.node)) return false;
-    S.mb.carry = null; render(); toast('遍历目标已设为 ' + mbTargetLabel(carry.node), 'ok'); return true;
+  const loopDrop2 = (e.target.closest && e.target.closest('[data-mb-loopdrop]')) || (geoSlot && geoSlot.closest('[data-mb-loopdrop]'));
+  if (loopDrop2 && carry.type === 'value' && carry.node) {
+  if (mbValueType(carry.node) !== 'target') { toast('遍历块里只能放「目标 / 自定义目标」', 'warn'); return false; }
+  if (!mbSetSlot(loopDrop2.dataset.mbLoopdrop, carry.node)) return false;
+  S.mb.carry = null; render(); toast('遍历目标已设为 ' + mbTargetLabel(carry.node), 'ok'); return true;
   }
   const slot = e.target.closest('.slot') || e.target.closest('[data-mb-slot]') || geoSlot;
   const stackEl = e.target.closest('[data-stack]');
@@ -8113,11 +8145,18 @@ Object.assign(actions, {
   },
   'mb-undo': () => mbUndo(),
   'mb-redo': () => mbRedo(),
+  'mb-loop-off': (el) => {
+  const chain = String(el.dataset.chain || '');
+  const stt = mbStmt(chain.replace(/:loop$/, ''));
+  if (stt) { stt.loopReady = false; stt.loop = null; render(); toast('已移除遍历块', 'warn'); }
+  },
   'mb-loop-slot': (el) => {
-    const chain = el.dataset.chain || '';
-    const ref = mbAccess(chain);
-    const cur = ref && ref.get();
-    if (!cur) { toast('把「目标」或「自定义目标」积木拖到这个遍历槽里'); return; }
+  toast('从左侧「目标」分类把「遍历」积木拖到这个位置，再把目标拖进块内空位');
+  return;
+  const chain = el.dataset.chain || '';
+  const ref = mbAccess(chain);
+  const cur = ref && ref.get();
+  if (!cur) { toast('把「目标」或「自定义目标」积木拖到这个遍历槽里'); return; }
     // 有值：打开目标面板直接改（不再只能「点一下清空」）
     modal({
       title: '修改遍历目标',

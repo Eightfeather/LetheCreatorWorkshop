@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { readJson, writeFilesTransactional } from '../atomic.mjs';
 import { SafetyError } from '../safety.mjs';
 import { entitiesOf, modDirSafe, readModPayload } from './mods.mjs';
-import { getModule, readBuffMeta, readPassiveMeta, readSkillMeta, writeBuffMeta, writePassiveMeta, writeSkillMeta } from './meta.mjs';
+import { COIN_WRITE, coinColor, getModule, readBuffMeta, readPassiveMeta, readSkillMeta, writeBuffMeta, writePassiveMeta, writeSkillMeta } from './meta.mjs';
 import { compileProgram } from './program.mjs';
 import { keywordTables, toGameText } from './keywords.mjs';
 
@@ -52,14 +52,8 @@ function writeBack(letheRoot, dir, mod, files) {
   return result;
 }
 
-const SPECIAL_COIN = { red: { color: 'RED', script: 'SuperCoin' }, green: { color: 'GREEN', script: 'ExtractCoin' }, purple: { color: 'PURPLE', script: null } };
-
 function normalizeCoinColor(value) {
-  const c = String(value || '').toLowerCase();
-  if (c === 'red' || c === 'redcoin') return 'red';
-  if (c === 'green' || c === 'greencoin') return 'green';
-  if (c === 'purple') return 'purple';
-  return 'normal';
+  return coinColor(value);
 }
 
 /**
@@ -205,14 +199,14 @@ export function saveCompiledSkill(letheRoot, body = {}) {
     const src = codeCoins[i];
     if (!src) continue;
     if (src.value != null && src.value !== '') coin.scale = Number(src.value);
-    const kind = normalizeCoinColor(src.color);
-    const special = SPECIAL_COIN[kind];
-    if (special) coin.color = special.color;
-    const specialLines = special && special.script ? [special.script] : [];
+    const plan = COIN_WRITE[normalizeCoinColor(src.color)] || COIN_WRITE.GREY;
+    coin.color = plan.color;
+    coin.grade = plan.grade;
+    const specialLines = plan.scripts.slice();
     const coinLines = moduleScripts(letheRoot, src.modules || []).lines;
-    if (specialLines.length || coinLines.length) {
-      coin.abilityScriptList = [...specialLines, ...coinLines].map((scriptName) => ({ scriptName }));
-    }
+    // 颜色切回普通时必须清掉旧的 SuperCoin / ExtractCoin，否则红币状态会残留
+    const allCoinLines = [...specialLines, ...coinLines];
+    coin.abilityScriptList = allCoinLines.length ? allCoinLines.map((scriptName) => ({ scriptName })) : [];
   }
 
   const files = [{ rel: found.rel, content: JSON.stringify(doc, null, 2) }];

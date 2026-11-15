@@ -61,13 +61,37 @@ export const SIN_TYPES = [
 ];
 /** 硬币颜色：数据里出现过的枚举是 GREY/GREEN/PURPLE，RED 为保留项（样本中未出现） */
 export const COIN_COLORS = [
-  { id: 'GREY', zh: '灰' },
-  { id: 'GREEN', zh: '绿' },
-  { id: 'PURPLE', zh: '紫' },
-  { id: 'RED', zh: '红' },
+  { id: 'GREY', zh: '普通（灰）' },
+  { id: 'RED', zh: '红（不可破坏）' },
+  { id: 'GREEN', zh: '绿（切除）' },
+  { id: 'PURPLE', zh: '紫（特殊）' },
 ];
-/** 旧版本占位 id（normal/red/green/purple）→ 游戏枚举 的兼容映射 */
-const COIN_COLOR_ALIAS = { normal: 'GREY', grey: 'GREY', green: 'GREEN', purple: 'PURPLE', red: 'RED' };
+/** 旧版本占位 id（normal/red/green/purple）→ 编辑器硬币类型 id 的兼容映射 */
+const COIN_COLOR_ALIAS = { normal: 'GREY', grey: 'GREY', gold: 'GREY', green: 'GREEN', purple: 'PURPLE', red: 'RED' };
+
+/**
+ * 写入游戏时每类硬币的三件套：真正的 color 枚举 + grade + 必须带的空脚本。
+ * 依据：引擎 MTCustomScripts.decompiled.cs:5994-6035（colorType 1/3 → grade 2 + SuperCoin；2 → grade 99 + ExtractCoin），
+ * 以及原版数据统计（GREY/2/SuperCoin 2,143 枚；GREEN/99/ExtractCoin 13 枚；PURPLE/2/SuperCoin 16 枚；RED 0 枚）。
+ */
+export const COIN_WRITE = {
+  GREY: { color: 'GREY', grade: 1, scripts: [] },
+  RED: { color: 'GREY', grade: 2, scripts: ['SuperCoin'] },
+  GREEN: { color: 'GREEN', grade: 99, scripts: ['ExtractCoin'] },
+  PURPLE: { color: 'PURPLE', grade: 2, scripts: ['SuperCoin'] },
+};
+
+/** 从文件的 color/grade/脚本反推编辑器硬币类型（读侧兼容旧数据，含 RED 这个非法枚举） */
+export function coinReadColor(coin) {
+  const c = coin && typeof coin === 'object' ? coin : {};
+  const color = String(c.color || '').toUpperCase();
+  const grade = Number(c.grade);
+  const scripts = Array.isArray(c.abilityScriptList) ? c.abilityScriptList.map((x) => String((x && x.scriptName) || x)) : [];
+  if (color === 'PURPLE') return 'PURPLE';
+  if (color === 'GREEN' || grade === 99 || scripts.includes('ExtractCoin')) return 'GREEN';
+  if (grade === 2 || scripts.includes('SuperCoin') || color === 'RED') return 'RED';
+  return 'GREY';
+}
 
 /** 3 个测试模块：可拖动，无映射、无实际效果 */
 export const TEST_MODULES = [
