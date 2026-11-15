@@ -5317,7 +5317,7 @@ function mbPaletteHtml() {
   } else if (cat === 'var') {
     items = MB_VARS.filter((v) => match(v))
       .map((v) => '<button class="mb-item mi-var" data-mb-drag="value" data-mb-kind="var" data-mb-val="' + esc(v) + '"><b>' + esc(v) + '</b><small>通用数值寄存器</small></button>');
-    items.unshift('<button class="mb-item mi-math" data-mb-drag="value" data-mb-kind="math"><b>运算 math( )</b><small>加减乘除 / 取小取大取余</small></button>');
+    items.unshift('<button class="mb-item mi-math" data-mb-drag="value" data-mb-kind="math"><b>运算 math( )</b><small>拖进数值槽；直接丢画布会变成「VALUE_0:math(...)」赋值语句</small></button>');
     items.unshift('<button class="mb-item mi-assign" data-mb-drag="stmt" data-mb-kind="assign"><b>赋值：VALUE_x 设为 …</b><small>把结果存进寄存器</small></button>');
     items.push('<button class="mb-item mi-var" data-mb-drag="value" data-mb-kind="s" data-mb-val=""><b>文本</b><small>放进去后再点文字修改</small></button>');
   } else if (cat === 'action') {
@@ -6063,7 +6063,17 @@ function mbDropResolve(x, y, payload) {
   const ctZone = (el.closest && el.closest('[data-mb-ctdrop]')) || (geoSlot && geoSlot.closest('[data-mb-ctdrop]'));
   if (ctZone) return mbDropTagAt(ctZone.dataset.mbCtdrop, payload.node);
   if (payload.type === 'value') {
-    if (!slot) return false;
+    if (!slot) {
+      if (payload.node && payload.node.t === 'math') {
+        const stk = (el.closest && el.closest('[data-stack]')) || document.querySelector('.mb-canvas .mb-stack');
+        if (stk) {
+          const okM = mbInsert(stk.dataset.stack || 'root', stk.children.length, { k: 'assign', var: 'VALUE_0', val: payload.node });
+          if (okM) { render(); toast('已作为赋值语句放入（VALUE_0:math(...)），可改寄存器名与算式', 'ok'); return true; }
+        }
+      }
+      toast('这是「值」积木，要放进实参空位里：先放一个效果块，再把「' + (MB_TYPE_ZH[mbValueType(payload.node)] || '值') + '」拖到它的空槽', 'warn');
+      return false;
+    }
     const want = slot.dataset.slotType || 'any';
     if (!mbCompatible(want, mbValueType(payload.node))) { toast('这个位置只能放「' + (MB_TYPE_ZH[want] || want) + '」', 'warn'); return false; }
     return mbSetSlot(mbSlotChain(slot), payload.node);
@@ -6388,7 +6398,16 @@ function mbCanvasClick(e) {
   const ctZone = (e.target.closest && e.target.closest('[data-mb-ctdrop]')) || (geoSlot && geoSlot.closest('[data-mb-ctdrop]'));
   if (ctZone) { const okTag = mbDropTagAt(ctZone.dataset.mbCtdrop, carry.node); if (okTag) { S.mb.carry = null; return true; } return false; }
   if (carry.type === 'value') {
-    if (!slot) return false;
+    if (!slot) {
+      if (carry.node && carry.node.t === 'math') {
+        const stk = (stackEl) || document.querySelector('.mb-canvas .mb-stack');
+        if (stk && mbInsert(stk.dataset.stack || 'root', stk.children.length, { k: 'assign', var: 'VALUE_0', val: carry.node })) {
+          S.mb.carry = null; render(); toast('已作为赋值语句放入（VALUE_0:math(...)），可改寄存器名与算式', 'ok'); return true;
+        }
+      }
+      toast('这是「值」积木，要放进实参空位里：先放一个效果块，再把它点到那个空槽上', 'warn');
+      return false;
+    }
     const want = slot.dataset.slotType || 'any';
     if (!mbCompatible(want, mbValueType(carry.node))) { toast('这个位置只能放「' + (MB_TYPE_ZH[want] || want) + '」', 'warn'); return false; }
     mbSetSlot(mbSlotChain(slot), carry.node);
