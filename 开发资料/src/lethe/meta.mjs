@@ -411,7 +411,7 @@ function assertDescText(t, label) {
 const PROG_MAX_DEPTH = 8;
 const BLOCK_KINDS = new Set(['timing', 'loop', 'cons', 'if', 'ifnot', 'continueif', 'assign', 'raw']);
 const LOGIC_KINDS = new Set(['none', 'and', 'or', 'xor']);
-const VALUE_KINDS = new Set(['acq', 'target', 'var', 'n', 's', 'math']);
+const VALUE_KINDS = new Set(['acq', 'target', 'var', 'n', 's', 'math', 'tag', 'ctarget']);
 const MATH_OPS = new Set(['+', '-', '*', '%', '!', '¡', '?']);
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const TARGET_RE = /^[A-Za-z][A-Za-z0-9_]*(?:[+$][A-Za-z0-9_$]*)*$/;
@@ -458,6 +458,25 @@ function pushValue(raw, depth, budget) {
     const n = String(raw.n || '');
     if (!/^VALUE_\d+$/.test(n)) throw new SafetyError('VALUE 变量不合法：' + n);
     return { t, n };
+  }
+  if (t === 'tag') {
+    // 自定义目标里的修饰标签（仅友方 / 排除自身 / 随机排序 …），只允许标识符形态
+    const v = String(raw.v || '');
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,40}$/.test(v)) throw new SafetyError('目标修饰标签不合法：' + v);
+    return { t, v };
+  }
+  if (t === 'ctarget') {
+    // 「自定义目标」大积木：由多个修饰标签 + 数量 + 单位 ID + $关键词 组成，允许全空（保存前前端会提醒）
+    const tags = (Array.isArray(raw.tags) ? raw.tags.slice(0, 12) : [])
+      .map((x) => pushValue(x, depth + 1, budget))
+      .filter((x) => x && x.t === 'tag');
+    return {
+      t,
+      uid: raw.uid ? pushValue(raw.uid, depth + 1, budget) : null,
+      cnt: raw.cnt ? pushValue(raw.cnt, depth + 1, budget) : null,
+      tags,
+      kw: raw.kw ? pushValue(raw.kw, depth + 1, budget) : null,
+    };
   }
   if (t === 'n') {
     const v = Number(raw.v);

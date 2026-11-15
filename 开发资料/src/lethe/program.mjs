@@ -28,6 +28,17 @@ function valueText(v, nested) {
     const k = tn.indexOf('$');
     return k < 0 ? tn + cnt : tn.slice(0, k) + cnt + tn.slice(k);
   }
+  if (v.t === 'tag') return String(v.v || '');
+  if (v.t === 'ctarget') {
+    // 自定义目标：单位ID前缀 + 修饰标签连写 + 数量插在 $ 之前 + $关键词
+    const uid = v.uid ? valueText(v.uid, true) : '';
+    const tags = (v.tags || []).map((x) => String((x && x.v) || '')).join('');
+    const cnt = v.cnt ? valueText(v.cnt, true) : '';
+    const kw = v.kw ? valueText(v.kw, true) : '';
+    const core = (uid && uid !== '_' ? 'id' + uid : '') + tags;
+    const body = core || 'EveryTarget';
+    return body + (cnt && cnt !== '_' ? cnt : '') + (kw && kw !== '_' ? '$' + kw : '');
+  }
   if (v.t === 'var') return String(v.n || 'VALUE_0');
   if (v.t === 'n') return String(v.v);
   if (v.t === 's') return String(v.v);

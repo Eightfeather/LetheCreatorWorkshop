@@ -4892,6 +4892,7 @@ function mbValueType(node) {
   if (node.t === 's') return 'text';
   if (node.t === 'acq') return 'acq';
   if (node.t === 'math') return 'num';
+  if (node.t === 'ctarget' || node.t === 'tag') return 'target';
   return 'any';
 }
 
@@ -4907,6 +4908,42 @@ function mbCompatible(slotType, valueType) {
 }
 
 const MB_VARS = Array.from({ length: 10 }, (_, i) => 'VALUE_' + i);
+
+// 「自定义目标」大积木：由多个修饰标签 + 数量 + 单位 ID + $关键词 组成（无基础目标槽）
+function mbNewCustomTarget() {
+  return { t: 'ctarget', uid: null, cnt: null, tags: [], kw: null };
+}
+function mbTagOk(node) {
+  if (!node) return null;
+  if (node.t === 'tag') return { t: 'tag', v: String(node.v || '') };
+  if (node.t === 'target' && MB_TAG_SET.has(String(node.n || ''))) return { t: 'tag', v: String(node.n) };
+  return null;
+}
+function mbCustomTargetText(v) {
+  const uid = v && v.uid ? (v.uid.t === 'n' ? String(v.uid.v) : String(v.uid.v || '')) : '';
+  const tags = ((v && v.tags) || []).map((x) => String((x && x.v) || '')).join('');
+  const cnt = v && v.cnt ? (v.cnt.t === 'n' ? String(v.cnt.v) : String(v.cnt.v || '')) : '';
+  const kw = v && v.kw ? String(v.kw.v || '') : '';
+  const core = (uid ? 'id' + uid : '') + tags;
+  return (core || 'EveryTarget') + cnt + (kw ? '$' + kw : '');
+}
+function mbAddTag(chain, tag) {
+  const ref = mbAccess(chain);
+  const node = ref && ref.get();
+  if (!node || node.t !== 'ctarget') return false;
+  node.tags = Array.isArray(node.tags) ? node.tags : [];
+  if (node.tags.length >= 12) { toast('修饰标签最多 12 个', 'warn'); return false; }
+  node.tags.push(tag);
+  return true;
+}
+function mbDropTagAt(chain, node) {
+  const tag = mbTagOk(node);
+  if (!tag) { toast('这里只能放「修饰标签」积木', 'warn'); return false; }
+  if (!mbAddTag(chain, tag)) return false;
+  render();
+  toast('已加入修饰标签 ' + tag.v, 'ok');
+  return true;
+}
 const MB_MATH_OPS = [['+', '加 +'], ['-', '减 -'], ['*', '乘 *'], ['%', '除 %'], ['!', '取小 !'], ['¡', '取大 ¡'], ['?', '取余 ?']];
 
 function mbTargetZh(n) { return (MB_TARGETS.find((t) => t.n === n) || {}).zh || n; }
@@ -5097,6 +5134,20 @@ function mbValHtml(v, chain, slotType, opt) {
   const stAttr = ' data-slot-type="' + esc(st) + '" title="' + esc((MB_TYPE_ZH[st] || MB_TYPE_ZH.any) + (opt ? ' · 可选参数，可留空' : '')) + '"';
   if (!v) return '<span class="slot' + (opt ? ' slot-opt' : ' slot-req') + ' slot-t-' + esc(st) + '"' + stAttr + ' data-mb-empty="1" data-mb-slot="' + esc(chain) + '"><i><b class="' + (opt ? 'slot-flag-opt">可选' : 'slot-flag-req">必填') + '</b>' + esc(MB_TYPE_ZH[st] || '.') + '</i></span>';
   const inner = (() => {
+    if (v.t === 'tag') return '<span class="vb-tag-name" title="目标修饰标签">' + esc(String(v.v || '')) + '</span>';
+    if (v.t === 'ctarget') {
+      const tags = Array.isArray(v.tags) ? v.tags : [];
+      const tagHtml = tags.map((t, i) => '<span class="mb-tag-cap"><span>' + esc(String((t && t.v) || '')) + '</span>'
+        + '<button class="mb-tag-x" data-mb-cttag="' + esc(chain + ':k' + i) + '" title="移除这个修饰标签">×</button></span>').join('');
+      const zone = '<span class="mb-tag-drop' + (tags.length ? ' has' : '') + '" data-mb-ctdrop="' + esc(chain) + '" title="把「修饰标签」拖到这里，可以放多枚">'
+        + (tags.length ? '＋' : '拖标签到这里') + '</span>';
+      return '<span class="vb-ct-head"><b>自定义目标</b><small>' + esc(String(chain ? '' : '')) + '</small>'
+        + '<button class="mb-tag-x vb-ct-x" data-mb-clear="' + esc(chain) + '" title="清空这个自定义目标">×</button></span>'
+        + '<span class="vb-ct-row"><label>单位 ID</label>' + mbValHtml(v.uid, chain + ':uid', 'num', true) + '</span>'
+        + '<span class="vb-ct-row"><label>数量</label>' + mbValHtml(v.cnt, chain + ':cnt', 'num', true) + '</span>'
+        + '<span class="vb-ct-row"><label>修饰标签</label><span class="mb-tag-wrap">' + tagHtml + zone + '</span></span>'
+        + '<span class="vb-ct-row"><label>$ 关键词</label>' + mbValHtml(v.kw, chain + ':kw', 'text', true) + '</span>';
+    }
     if (v.t === 'target') return esc(mbTargetLabel(v));
     if (v.t === 'var') return esc(v.n);
     if (v.t === 'n') return esc(String(v.v));
@@ -5122,7 +5173,8 @@ function mbValHtml(v, chain, slotType, opt) {
   })();
   const edit = v.t === 'n' ? '<button class="vb-edit" data-mb-edit="' + esc(chain) + '" title="修改数字">✎</button>' : '';
   const vt = mbValueType(v);
-  return '<span class="vb vb-' + esc(v.t) + ' vb-t-' + esc(vt) + '" data-chain="' + esc(chain) + '" data-mb-slot="' + esc(chain) + '"' + stAttr + '>' + inner + edit + '</span>';
+  const ctCls = v.t === 'ctarget' ? ' vb-ctarget' : '';
+  return '<span class="vb vb-' + esc(v.t) + ' vb-t-' + esc(vt) + ctCls + '" data-chain="' + esc(chain) + '" data-mb-slot="' + esc(chain) + '"' + stAttr + '>' + inner + edit + '</span>';
 }
 
 function mbCondsOf(b) {
@@ -5252,12 +5304,12 @@ function mbPaletteHtml() {
         items.push('<button class="mb-item mi-target" data-mb-drag="value" data-mb-kind="target" data-mb-val="' + esc(t.n) + '"><b>' + esc(t.zh) + '</b><small>' + esc(t.n) + '</small></button>');
       }
     }
-    items.push('<button class="mb-item mi-target" data-act="mb-custom-target"><b>自定义目标…</b><small>基础选择器 + 排序 / 队伍 / 排除 / 数量</small></button>');
-    const lt = S.mb.loopTarget;
+        const lt = S.mb.loopTarget;
     const ltHtml = lt ? esc(mbTargetLabel(lt)) : '<i><b class="slot-flag-req">必填</b>目标</i>';
     items.unshift('<div class="mb-item mi-loop' + (lt ? ' has-target' : '') + '" data-mb-drag="value" data-mb-kind="loop" role="button" tabindex="0">'
       + '<div class="mi-loop-head"><b>遍历（自定义目标）</b><small>拖到时点右侧「遍历」槽 · 目标拖进下面空位</small></div>'
       + '<span class="slot slot-req slot-loop-card" data-mb-slot="palette:loop" title="拖一个目标积木到这里">' + ltHtml + '</span></div>');
+    items.unshift('<button class="mb-item mi-ctarget" data-mb-drag="value" data-mb-kind="ctarget"><b>自定义目标</b><small>修饰标签 / 数量 / 单位 ID / $ 关键词（整体嵌套）</small></button>');
   } else if (cat === 'var') {
     items = MB_VARS.filter((v) => match(v))
       .map((v) => '<button class="mb-item mi-var" data-mb-drag="value" data-mb-kind="var" data-mb-val="' + esc(v) + '"><b>' + esc(v) + '</b><small>通用数值寄存器</small></button>');
@@ -5700,8 +5752,9 @@ function mbArgHtml(v, chain, slotType, kind, name, i) {
   const has = en.values.some(([val]) => String(val) === cur);
   const extra = cur && !has ? '<option value="' + esc(cur) + '" selected>（原值）' + esc(cur) + '</option>' : '';
   const opts = en.values.map(([val, label]) => '<option value="' + esc(val) + '"' + (String(val) === cur ? ' selected' : '') + '>' + esc(label) + '</option>').join('');
-  return '<select class="mb-arg-enum" data-mb-arg="' + esc(chain) + '" title="' + esc(en.zh || '') + '">'
-    + '<option value=""' + (cur ? '' : ' selected') + '>（空）</option>' + extra + opts + '</select>';
+  const flag = '<em class="mb-arg-flag ' + (opt ? 'opt' : 'req') + '" title="' + esc(opt ? '可选参数：留空时游戏按默认值处理' : '必填参数：必须选择一个值') + '">' + (opt ? '可选' : '必填') + '</em>';
+  return flag + '<select class="mb-arg-enum ' + (opt ? 'opt' : 'req') + '" data-mb-arg="' + esc(chain) + '" title="' + esc(en.zh || '') + '">'
+    + '<option value=""' + (cur ? '' : ' selected') + '>' + (opt ? '（可选）留空' : '（必填）请选择…') + '</option>' + extra + opts + '</select>';
 }
 
 function mbArgOptional(kind, name, i) {
@@ -5732,6 +5785,7 @@ function mbPayloadFrom(el) {
   } else {
     if (kind === 'loop') return { type: 'value', loop: true, node: (S.mb && S.mb.loopTarget) ? S.mb.loopTarget : null };
     if (kind === 'target') return { type: 'value', node: { t: 'target', n: val, c: null } };
+    if (kind === 'ctarget') return { type: 'value', node: mbNewCustomTarget() };
     if (kind === 'var') return { type: 'value', node: { t: 'var', n: val } };
     if (kind === 'n') return { type: 'value', node: { t: 'n', v: Number(val) || 0 } };
     if (kind === 's') return { type: 'value', node: { t: 's', v: String(val || '') } };
@@ -5763,7 +5817,8 @@ function mbAccess(chain) {
     if (m) { arr = 'a'; idx = Number(m[1]); }
     else if ((m = /^c(\d+)$/.exec(head))) { arr = 'conds'; idx = Number(m[1]); }
     else if ((m = /^t(\d+)$/.exec(head))) { arr = 'tail'; idx = Number(m[1]); }
-    else if (['loop', 'val', 'left', 'right', 'op', 'f'].includes(head)) field = head;
+    else if ((m = /^k(\d+)$/.exec(head))) { arr = 'tags'; idx = Number(m[1]); }
+    else if (['loop', 'val', 'left', 'right', 'op', 'f', 'uid', 'cnt', 'kw'].includes(head)) field = head;
     else return null;
     steps.push({ arr, idx, field, rest });
   }
@@ -5773,6 +5828,7 @@ function mbAccess(chain) {
     if (st.arr === 'conds') { const c = (node.conds || [])[st.idx] || null; return c; }
     if (st.arr === 'a') return (node.a || [])[st.idx] || null;
     if (st.arr === 'tail') { const e = (node.tail || [])[st.idx] || null; return e ? e.val || null : null; }
+    if (st.arr === 'tags') return (node.tags || [])[st.idx] || null;
     return node[st.field] === undefined ? null : node[st.field];
   };
   const writeStep = (node, st, v) => {
@@ -5781,6 +5837,7 @@ function mbAccess(chain) {
     if (st.arr === 'conds') { node.conds = node.conds || []; const c = node.conds[st.idx]; if (!c) return false; return true; }
     if (st.arr === 'a') { node.a = node.a || []; node.a[st.idx] = v; return true; }
     if (st.arr === 'tail') { node.tail = node.tail || []; const e = node.tail[st.idx]; if (!e) return false; e.val = v; return true; }
+    if (st.arr === 'tags') { node.tags = node.tags || []; node.tags[st.idx] = v; return true; }
     node[st.field] = v; return true;
   };
   const lastSt = steps[steps.length - 1];
@@ -5977,6 +6034,12 @@ function mbDropResolve(x, y, payload) {
     if (!slotEl) { toast('遍历块只能放到时点块右侧的「遍历」槽里', 'warn'); return false; }
     return mbSetSlot(slotEl.dataset.mbLoop, payload.node);
   }
+  const loopHit = (el.closest && el.closest('[data-mb-loop]')) || (geoSlot && geoSlot.closest('[data-mb-loop]'));
+  if (loopHit && payload.type === 'value' && payload.node) {
+    if (mbValueType(payload.node) !== 'target') { toast('遍历槽只能放目标积木', 'warn'); return false; }
+    if (!mbSetSlot(loopHit.dataset.mbLoop, payload.node)) return false;
+    render(); toast('遍历目标已设为 ' + mbTargetLabel(payload.node), 'ok'); return true;
+  }
   const slot = el.closest('.slot') || el.closest('[data-mb-slot]') || geoSlot;
   if (slot && mbSlotChain(slot) === 'palette:loop') {
     const node = payload && payload.node ? payload.node : null;
@@ -5986,6 +6049,8 @@ function mbDropResolve(x, y, payload) {
     toast('遍历目标已设为 ' + mbTargetLabel(node), 'ok');
     return true;
   }
+  const ctZone = (el.closest && el.closest('[data-mb-ctdrop]')) || (geoSlot && geoSlot.closest('[data-mb-ctdrop]'));
+  if (ctZone) return mbDropTagAt(ctZone.dataset.mbCtdrop, payload.node);
   if (payload.type === 'value') {
     if (!slot) return false;
     const want = slot.dataset.slotType || 'any';
@@ -6022,6 +6087,125 @@ function mbOverTrash(x, y) {
   return x >= r.left - 6 && x <= r.right + 6 && y >= r.top - 6 && y <= r.bottom + 6;
 }
 
+
+/* ===== @mb-help-v1 ===== 长按 W 的「俺寻思这个按键是……」帮助窗口 ===== */
+function mbHelpTargetAt(el) {
+  if (!el || !el.closest) return null;
+  const loop = el.closest('.mb-loop-slot');
+  if (loop && loop.dataset.mbLoop) return { kind: 'loop', name: '' };
+  const bk = el.closest('[data-mb-bk]');
+  if (bk) {
+    const st = mbStmt(bk.dataset.mbBk);
+    if (!st) return null;
+    if (st.k === 'timing') return { kind: 'timing', name: st.v };
+    if (st.k === 'cons') return { kind: 'consequence', name: st.n };
+    if (st.k === 'if' || st.k === 'ifnot' || st.k === 'continueif') return { kind: st.k, name: '' };
+    if (st.k === 'assign') return { kind: 'assign', name: '' };
+    return { kind: 'ctarget', name: '' };
+  }
+  const vb = el.closest('.vb');
+  if (vb && vb.dataset.chain) {
+    const node = mbAccess(vb.dataset.chain).get();
+    if (!node) return null;
+    if (node.t === 'acq') return { kind: 'acquirer', name: node.n };
+    if (node.t === 'ctarget') return { kind: 'ctarget', name: '' };
+    if (node.t === 'target') return { kind: 'target', name: node.n || '' };
+    if (node.t === 'tag') return { kind: 'tag', name: node.v || '' };
+  }
+  return null;
+}
+
+function mbHelpBody(kind, name, res) {
+  const doc = res.doc || null;
+  const block = res.block || null;
+  const timing = res.timing || null;
+  const title = name ? name : (block ? (kind === 'timing' ? '时点块' : '积木块') : '积木说明');
+  const parts = [];
+  parts.push('<div class="help-title">' + esc(title) + (kind ? ' <em class="help-kind">' + esc(kind) + '</em>' : '') + '</div>');
+  const zh = (timing && timing.zh) || (doc && doc.zh) || (block && block.zh) || '';
+  if (zh) parts.push('<div class="help-sect"><h4>用途</h4><p>' + esc(zh) + '</p></div>');
+  if (timing) parts.push('<div class="help-sect"><h4>中文名</h4><p>' + esc(timing.zh || '（无官方中文名）') + '　<small>引擎编号 ' + esc(timing.id) + '</small></p>'
+    + (timing.args && timing.args.length ? '<p>可用实参：' + esc(timing.args.join(' / ')) + '</p>' : '') + '</div>');
+  if (doc && doc.params && doc.params.length) {
+    parts.push('<div class="help-sect"><h4>参数</h4><table class="help-params"><tr><th>位置</th><th>名称</th><th>说明</th></tr>'
+      + doc.params.map((p, i) => {
+        const nm = String(p.name || '');
+        const opt = /^opt/.test(nm);
+        return '<tr><td>' + (i + 1) + '</td><td>' + esc(nm) + (opt ? ' <em class="mb-arg-flag opt">可选</em>' : ' <em class="mb-arg-flag req">必填</em>') + '</td><td>' + esc(p.doc || '') + '</td></tr>';
+      }).join('') + '</table></div>');
+  }
+  if (doc && doc.tut) parts.push('<div class="help-sect"><h4>中文教程原文</h4><pre class="help-pre">' + esc(doc.tut) + '</pre></div>');
+  if (doc && doc.en) parts.push('<div class="help-sect"><h4>官方英文文档</h4><pre class="help-pre">' + esc(doc.en) + '</pre></div>');
+  if (block && block.en) parts.push('<div class="help-sect"><h4>Modular 写法</h4><pre class="help-pre">' + esc(block.en) + '</pre></div>');
+  if (!zh && !doc && !block) parts.push('<div class="help-sect"><p>教程与文档都没有这条积木的说明（可对照游戏内 Modular 脚本使用）。</p></div>');
+  return parts.join('');
+}
+
+async function mbShowHelp(kind, name) {
+  const key = kind + ':' + name;
+  S.helpCache = S.helpCache || {};
+  let res = S.helpCache[key];
+  if (!res) {
+    try {
+      res = await api('/api/help?kind=' + encodeURIComponent(kind) + '&name=' + encodeURIComponent(name || ''));
+      S.helpCache[key] = res;
+    } catch (e) { toast('取帮助失败：' + e.message, 'error'); return; }
+  }
+  modal({
+    title: '俺寻思这个按键是……',
+    body: mbHelpBody(kind, name, res),
+    footer: '',
+  });
+}
+
+function mbBindHelp() {
+  if (mbBindHelp.bound) return;
+  mbBindHelp.bound = true;
+  let hintEl = null;
+  let holdTimer = null;
+  const HOLD_MS = 3000;
+  const clearHold = () => {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    if (hintEl) { hintEl.remove(); hintEl = null; }
+  };
+  const showHint = (target) => {
+    clearHold();
+    hintEl = document.createElement('div');
+    hintEl.className = 'mb-hold';
+    hintEl.innerHTML = '<b>W</b> 按住 3 秒查看「' + esc(target.name || target.kind) + '」的说明<span class="mb-hold-bar"></span>';
+    document.body.appendChild(hintEl);
+    holdTimer = setTimeout(() => {
+      clearHold();
+      mbShowHelp(target.kind, target.name);
+    }, HOLD_MS);
+  };
+  document.addEventListener('mouseover', (e) => {
+    if (!S.mb || !S.mbDoc) return;
+    const t = mbHelpTargetAt(e.target);
+    S.mb.hover = t;
+    if (!t) clearHold();
+  });
+  document.addEventListener('mouseout', (e) => {
+    if (!S.mb) return;
+    const to = e.relatedTarget;
+    if (!to || !mbHelpTargetAt(to)) { S.mb.hover = null; clearHold(); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!S.mb || !S.mbDoc) return;
+    const tg = e.target;
+    if (tg instanceof Element && tg.closest('input,textarea,select,[contenteditable="true"]')) return;
+    if (e.key !== 'w' && e.key !== 'W') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!S.mb.hover) return;
+    e.preventDefault();
+    if (!holdTimer) showHint(S.mb.hover);
+  });
+  document.addEventListener('keyup', (e) => {
+    if (e.key !== 'w' && e.key !== 'W') return;
+    clearHold();
+  });
+}
+
 function mbBindDrag() {
   document.addEventListener('mousedown', (e) => {
     if (!S.mb || !S.mbDoc) return;
@@ -6031,14 +6215,23 @@ function mbBindDrag() {
       if (!e.target.closest('[data-mb-drag]')) return;
     }
     if (e.target.closest('.bk-x, .vb-x, .vb-edit, .no-drag')) return;
-    if (e.target.closest('button') && !e.target.closest('[data-mb-drag]')) return;
+    if (e.target.closest('button') && !e.target.closest('[data-mb-drag]') && !e.target.closest('.mb-loop-slot.on')) return;
     const pal = e.target.closest('[data-mb-drag]');
     const bk = e.target.closest('[data-mb-bk]');
     const vb = e.target.closest('.vb');
-    if (!pal && !bk && !vb) return;
+    const loopCap = e.target.closest('.mb-loop-slot.on');
+    if (!pal && !bk && !vb && !loopCap) return;
     if (!pal && !vb && e.target.closest('.slot')) return;
     let payload = null; let label = '';
     if (pal) { payload = mbPayloadFrom(pal); label = (pal.querySelector('b') || {}).textContent || '积木'; if (payload) payload.fromPalette = true; }
+    else if (loopCap) {
+      const chain = loopCap.dataset.chain || '';
+      const ref = mbAccess(chain);
+      const cur = ref && ref.get();
+      if (!cur) return;
+      payload = { type: 'value', node: JSON.parse(JSON.stringify(cur)), fromLoop: chain };
+      label = '遍历目标 ' + mbTargetLabel(cur);
+    }
     else if (vb) { const chain = vb.dataset.chain || (vb.parentElement && vb.parentElement.closest('[data-mb-slot]')?.dataset.mbSlot) || ''; if (!chain) return; const ref = mbAccess(chain); if (!ref || !ref.get()) return; payload = { type: 'value', node: JSON.parse(JSON.stringify(ref.get())), fromChain: chain }; label = '数值块'; }
     else if (bk) { const id = bk.dataset.mbBk; const cur = mbStmt(id); if (!cur) return; payload = { type: 'stmt', node: JSON.parse(JSON.stringify(cur)), fromId: id }; label = cur.k === 'if' ? '如果' : (cur.n || cur.k); }
     if (!payload) return;
@@ -6085,6 +6278,7 @@ function mbBindDrag() {
       }
       const ok = mbDropResolve(e.clientX, e.clientY, d.payload);
       if (!ok) { toast('这里放不下这个块', 'warn'); }
+      else if (d.payload.fromLoop) { const ref = mbAccess(d.payload.fromLoop); if (ref) ref.set(null); }
       else if (d.payload.fromId) mbRemove(d.payload.fromId);
       else if (d.payload.fromChain) {
         const up = document.elementFromPoint(e.clientX, e.clientY);
@@ -6143,6 +6337,12 @@ function mbCanvasClick(e) {
     if (!mbSetSlot(slotEl.dataset.mbLoop, carry.node)) return false;
     S.mb.carry = null; render(); return true;
   }
+  const loopHit2 = (e.target.closest && e.target.closest('[data-mb-loop]')) || (geoSlot && geoSlot.closest('[data-mb-loop]'));
+  if (loopHit2 && carry.type === 'value' && carry.node) {
+    if (mbValueType(carry.node) !== 'target') { toast('遍历槽只能放目标积木', 'warn'); return false; }
+    if (!mbSetSlot(loopHit2.dataset.mbLoop, carry.node)) return false;
+    S.mb.carry = null; render(); toast('遍历目标已设为 ' + mbTargetLabel(carry.node), 'ok'); return true;
+  }
   const slot = e.target.closest('.slot') || e.target.closest('[data-mb-slot]') || geoSlot;
   const stackEl = e.target.closest('[data-stack]');
   if (slot && mbSlotChain(slot) === 'palette:loop') {
@@ -6151,6 +6351,8 @@ function mbCanvasClick(e) {
     S.mb.loopTarget = node; S.mb.carry = null; render(); toast('遍历目标已设为 ' + mbTargetLabel(node), 'ok'); return true;
   }
   if (carry.loop && !carry.node) { toast('先往「遍历（自定义目标）」卡片里拖一个目标', 'warn'); return false; }
+  const ctZone = (e.target.closest && e.target.closest('[data-mb-ctdrop]')) || (geoSlot && geoSlot.closest('[data-mb-ctdrop]'));
+  if (ctZone) { const okTag = mbDropTagAt(ctZone.dataset.mbCtdrop, carry.node); if (okTag) { S.mb.carry = null; return true; } return false; }
   if (carry.type === 'value') {
     if (!slot) return false;
     const want = slot.dataset.slotType || 'any';
@@ -6521,6 +6723,7 @@ Object.assign(actions, {
 });
 
 mbBindDrag();
+mbBindHelp();
 mbBindEmptySlot();
 const mbClickBind = true;
 document.addEventListener('click', (e) => {
@@ -6551,6 +6754,14 @@ document.addEventListener('click', (e) => {
     const ref = mbAccess(mDel.dataset.mbMathdel);
     const node = ref && ref.get();
     if (node && node.t === 'math' && node.tail && node.tail.length) { node.tail.pop(); render(); }
+    return;
+  }
+  const ctTag = e.target.closest('[data-mb-cttag]');
+  if (ctTag) {
+    e.preventDefault();
+    const ref = mbAccess(ctTag.dataset.mbCttag);
+    const node = ref && ref.get();
+    if (node) { ref.set(null); render(); }
     return;
   }
   const clr = e.target.closest('[data-mb-clear]');
@@ -7906,14 +8117,22 @@ Object.assign(actions, {
     const chain = el.dataset.chain || '';
     const ref = mbAccess(chain);
     const cur = ref && ref.get();
-    if (cur && (cur.t === 'target' || cur.v)) {
-      mbSnapshot();
-      ref.set(null);
-      render();
-      toast('已清空遍历目标；需要时从左侧「目标」分类把「遍历（自定义目标）」拖回来');
-      return;
-    }
-    toast('从左侧「目标」分类把「遍历（自定义目标）」拖到这个槽里');
+    if (!cur) { toast('把「目标」或「自定义目标」积木拖到这个遍历槽里'); return; }
+    // 有值：打开目标面板直接改（不再只能「点一下清空」）
+    modal({
+      title: '修改遍历目标',
+      body: mbTargetModalBody(cur.t === 'target' ? cur : { t: 'target', n: '', c: null }),
+      footer: '<button class="btn ghost" data-act="close-modal">取消</button>'
+        + '<button class="btn danger" data-act="mb-loop-clear" data-chain="' + esc(chain) + '">清空遍历</button>'
+        + '<button class="btn primary" data-act="mb-custom-target-ok" data-mode="loop-slot" data-chain="' + esc(chain) + '">确定</button>',
+    });
+  },
+  'mb-loop-clear': (el) => {
+    const ref = mbAccess(el.dataset.chain || '');
+    if (ref) { mbSnapshot(); ref.set(null); }
+    closeModal();
+    render();
+    toast('已清空遍历目标', 'warn');
   },
   'mb-cond-add': (el) => {
     const st = mbStmt(el.dataset.chain);

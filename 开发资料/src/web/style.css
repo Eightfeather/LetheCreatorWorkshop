@@ -1951,3 +1951,45 @@ body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
 .desc-len { font-size: 11px; color: #8c7f6d; text-align: right; margin-top: 2px; user-select: none; }
 .desc-len.near { color: #C98A3C; }
 /* @desc-len-v1:end */
+
+/* @mb-req-opt-v1:start —— 必填/可选更醒目：必填整块描金、可选整块灰底 */
+.slot.slot-req{border-color:rgba(224,163,60,.85)!important;background:linear-gradient(180deg,rgba(224,163,60,.16),rgba(224,163,60,.05))!important;box-shadow:inset 0 0 0 1px rgba(224,163,60,.18)}
+.slot.slot-opt{border-style:dashed!important;border-color:#4a4438!important;background:rgba(120,110,95,.16)!important;color:#8d8474}
+.vb.vb-opt{background:rgba(120,110,95,.16);border-color:#4a4438}
+.mb-arg-flag{font-style:normal;font-size:10px;padding:1px 4px;border-radius:3px;margin-right:4px;vertical-align:middle;white-space:nowrap;display:inline-block}
+.mb-arg-flag.req{color:#1b1408;background:#e0a33c;font-weight:700}
+.mb-arg-flag.opt{color:#a89b85;background:rgba(120,110,95,.3);border:1px solid #4a4438}
+select.mb-arg-enum.req{border-color:rgba(224,163,60,.7);background:rgba(224,163,60,.08)}
+select.mb-arg-enum.opt{border-color:#4a4438;background:rgba(120,110,95,.14)}
+/* 「自定义目标」大积木 */
+.vb.vb-ctarget{display:block;padding:6px 8px 8px;background:#241d19;border:1px solid #6b5636;border-radius:6px;min-width:250px;max-width:520px}
+.vb-ct-head{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.vb-ct-head b{color:#E3C07E;font-size:12px}
+.vb-ct-x{width:16px;height:16px;margin-left:auto;line-height:14px;padding:0;border:0;background:transparent;color:#c9a15b;cursor:pointer}
+.vb-ct-x:hover{color:#ff8f6b}
+.vb-ct-row{display:flex;align-items:center;gap:6px;margin:3px 0}
+.vb-ct-row>label{color:#A79780;font-size:11px;min-width:52px;text-align:right;flex:0 0 auto}
+.mb-tag-wrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center;flex:1;min-width:0}
+.mb-tag-cap{display:inline-flex;align-items:center;gap:3px;background:#3a2d1c;border:1px solid #6b5636;border-radius:4px;padding:1px 4px;font-size:11px;color:#E8DCC6}
+.mb-tag-x{width:14px;height:14px;line-height:12px;padding:0;border:0;background:transparent;color:#c9a15b;cursor:pointer;font-size:12px}
+.mb-tag-x:hover{color:#ff8f6b}
+.mb-tag-drop{border:1px dashed #4a4438;border-radius:4px;padding:2px 8px;font-size:11px;color:#8d8474;background:rgba(120,110,95,.12);cursor:pointer}
+.mb-tag-drop.has{padding:1px 6px}
+.mb-tag-drop.drop-hot{border-color:var(--gold);background:rgba(198,161,91,.18)}
+.vb-tag-name{color:#C9A6D6}
+/* @mb-req-opt-v1:end */
+/* @mb-help-v1:start —— 长按 W 的提示与帮助弹窗 */
+.mb-hold{position:fixed;left:50%;bottom:calc(var(--dock-h,96px) + 18px);transform:translateX(-50%);z-index:2100;background:#1b1613;border:1px solid var(--gold);border-radius:6px;padding:8px 14px 10px;color:#E8DCC6;font-size:12px;box-shadow:0 8px 26px rgba(0,0,0,.5);min-width:270px;overflow:hidden}
+.mb-hold b{display:inline-block;background:#e0a33c;color:#1b1408;border-radius:3px;padding:0 5px;margin-right:6px;font-weight:700}
+.mb-hold-bar{position:absolute;left:0;bottom:0;height:3px;width:0;background:var(--gold);animation:mbHold 3s linear forwards}
+@keyframes mbHold{from{width:0}to{width:100%}}
+.help-title{font-family:var(--serif,serif);font-size:16px;color:#F4E7C9;margin-bottom:8px}
+.help-kind{font-size:11px;color:#A79780;font-style:normal;border:1px solid #4a4438;border-radius:3px;padding:0 4px;margin-left:6px}
+.help-sect{margin:8px 0}
+.help-sect h4{margin:0 0 3px;font-size:12px;color:#C6A15B;font-weight:600}
+.help-sect p{margin:2px 0;color:#D9CBB1;line-height:1.6}
+.help-pre{margin:2px 0;padding:6px 8px;background:#14100d;border:1px solid #3a3227;border-radius:4px;color:#C9BC9F;font-size:11.5px;line-height:1.55;white-space:pre-wrap;max-height:180px;overflow:auto}
+.help-params{width:100%;border-collapse:collapse;font-size:12px}
+.help-params th{text-align:left;color:#A79780;font-weight:500;padding:2px 6px;border-bottom:1px solid #3a3227}
+.help-params td{padding:3px 6px;border-bottom:1px solid rgba(74,68,56,.5);color:#D9CBB1;vertical-align:top}
+/* @mb-help-v1:end */

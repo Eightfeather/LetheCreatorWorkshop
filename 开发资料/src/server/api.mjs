@@ -32,6 +32,7 @@ import { pickKinds, pickRecord, pickSearch } from '../lethe/picker.mjs';
 import { ARG_ENUMS } from '../knowledge/arg-enums.mjs';
 import { ARG_OPTIONAL } from '../knowledge/arg-optional.mjs';
 import { COMMANDS, ACQUIRERS, CONSEQUENCES, modularStats } from '../knowledge/modular-tables.mjs';
+import { commandDoc, timingDoc } from '../knowledge/command-docs.mjs';
 import { SCOPES, TIMING_SCOPE, COMMAND_SCOPE, TIMING_CONTAINERS, COMMAND_CONTAINERS } from '../knowledge/scopes.mjs';
 import { createApi } from './api-shared.mjs';
 import { compileProgram, compileTimingRows } from '../lethe/program.mjs';
@@ -187,6 +188,18 @@ function scriptSlots(letheRoot, mod, kind, id) {
   }
   return out;
 }
+
+/** 「俺寻思这个按键是……」用：非命令类积木的说明 */
+const BLOCK_HELP = {
+  if: { zh: '条件块（IF）：条件成立时才执行内部子句。引擎的比较只支持 > < = 三种；多条条件用 AND / OR / XOR 组合（XOR 在只有两条条件时引擎只取第二条，建议改用 AND / OR）。', en: 'Modular/IF(条件):子句1:子句2' },
+  ifnot: { zh: '条件块（IFNOT）：条件不成立时才执行内部子句；其余规则与 IF 相同。', en: 'Modular/IFNOT(条件):子句' },
+  continueif: { zh: '继续条件（CONTINUEIF）：条件成立时跳过本批次其余语句，继续下一批次。', en: 'Modular/CONTINUEIF(条件)' },
+  assign: { zh: '赋值：把右侧表达式的结果存进 VALUE_n 寄存器，后面可以用 VALUE_n 引用它。', en: 'VALUE_n:<表达式>' },
+  loop: { zh: '遍历（LOOP）：整条脚本里的 Target 会被依次替换成这个目标。引擎的 LOOP 是模块级字段，同一模块只有最后一行生效。', en: 'Modular/TIMING:X/LOOP:<目标>/…' },
+  ctarget: { zh: '自定义目标：由多个修饰标签拼出来的一个目标。单位 ID 会写成 id#### 前缀；数量要写在 $ 之前；$关键词只保留带该 Buff 的单位。示例：EveryEnemyNoAbnosExceptSelf3$Combustion。', en: 'id12345EveryEnemyNoAbnosExceptSelf3$Combustion' },
+  target: { zh: '目标选择器：基础目标（自身/主目标/…）后面直接连写修饰标签，+ 表示并集，末尾数字是数量，$关键词 只保留带该 Buff 的单位。', en: 'EveryEnemyNoAbnosExceptSelf3' },
+  timing: { zh: '时点（TIMING）：这条脚本在什么时机触发。时点决定可用的实参（硬币面 / 暴击条件 / 关键词 / 按键）。', en: 'Modular/TIMING:<时点>' },
+};
 
 function unrecSlots(letheRoot, mod, kind, id) {
   let slots = [];
@@ -846,7 +859,14 @@ export function buildApi(ctx) {
         })),
       };
     },
-    'GET /api/keywords': () => {
+    'GET /api/help': (q) => {
+    const kind = String(q.get('kind') || '');
+    const name = String(q.get('name') || '');
+    if (kind === 'timing') return { ok: true, kind, name, doc: null, timing: timingDoc(name), block: BLOCK_HELP.timing };
+    const doc = commandDoc(kind, name);
+    return { ok: true, kind, name, doc, timing: null, block: BLOCK_HELP[kind] || null };
+  },
+  'GET /api/keywords': () => {
       const { letheRoot } = need();
       const t = keywordTables(letheRoot);
       return {
