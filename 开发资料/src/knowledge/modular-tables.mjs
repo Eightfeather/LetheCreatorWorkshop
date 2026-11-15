@@ -3752,6 +3752,40 @@ export function canonicalCommand(kind, name) {
 // 旧调用写的 `bufcheck(...)` 之类，读取时归一成正式称呼
 export function normalizeCommandName(kind, name) { return canonicalCommand(kind, name); }
 
+// @engine-merge-v1
+import { COMMANDS as ENGINE_ROWS, TIMINGS as ENGINE_TIMINGS } from './engine-registry.mjs';
+// 引擎注册表（当前 5.1.17 + MT）里存在、但本表还没有的命令 → 自动补行（参数个数取引擎实测，说明留空）
+(function mergeEngineCommands() {
+  const have = new Set(MODULAR_TABLES.rows.map((r) => r.kind + ':' + r.name));
+  const aliases = new Map();
+  for (const e of ENGINE_ROWS) {
+    if (e.aliasOf) {
+      const k = e.kind + ':' + e.aliasOf;
+      if (!aliases.has(k)) aliases.set(k, []);
+      aliases.get(k).push(e.name);
+    }
+  }
+  for (const e of ENGINE_ROWS) {
+    if (e.aliasOf) continue;
+    const key = e.kind + ':' + e.name;
+    if (have.has(key)) continue;
+    const params = Array.from({ length: Math.max(0, e.params | 0) }, (_x, i) => ({ name: 'var_' + (i + 1), doc: '' }));
+    MODULAR_TABLES.rows.push({
+      kind: e.kind, name: e.name, en: e.name, cls: e.cls || '', src: e.src || 'modular',
+      params, summary: '', zh: '', aliasOf: aliases.get(key) || [], engineOnly: true,
+    });
+    have.add(key);
+  }
+  for (const r of MODULAR_TABLES.rows) {
+    const extra = aliases.get(r.kind + ':' + r.name);
+    if (extra && extra.length) {
+      const merged = new Set([...(r.aliasOf || []), ...extra]);
+      r.aliasOf = [...merged];
+    }
+  }
+  MODULAR_TABLES.count = MODULAR_TABLES.rows.length;
+})();
+
 export const COMMANDS = MODULAR_TABLES.rows;
 export const CONSEQUENCES = COMMANDS.filter((c) => c.kind === 'consequence');
 export const ACQUIRERS = COMMANDS.filter((c) => c.kind === 'acquirer');

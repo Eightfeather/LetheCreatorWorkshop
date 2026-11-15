@@ -515,7 +515,7 @@ export const COMMAND_CONTAINERS = {
 function allows(set, scope) {
   if (!set || !set.length) return true;
   const has = (k) => set.includes(k) || set.includes("unit");
-  if (scope === "common") return ["buff", "passive", "skill"].every(has);
+  if (scope === "common") { const nonUnit = set.filter((x) => x !== "unit"); return set.includes("unit") || nonUnit.length >= 2; }
   return has(scope);
 }
 

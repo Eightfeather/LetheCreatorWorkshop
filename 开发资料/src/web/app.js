@@ -3149,7 +3149,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'passive-search') { S.passiveSearch = t.value; render(); refocus('passive-search', t.value.length); return; }
   if (t.id === 'buff-search') { S.buffSearch = t.value; render(); refocus('buff-search', t.value.length); return; }
   if (t.id === 'module-search2') { S.moduleSearch2 = t.value; render(); refocus('module-search2', t.value.length); return; }
-  if (t.id === 'mb-search') { mbResShow(t.value); return; }
+  if (t.id === 'mb-search') { S.mb.search = t.value; const pos = t.selectionStart || t.value.length; render(); refocus('mb-search', pos); return; }
   if (t.dataset && t.dataset.pinfo) { schedulePInfo(); return; }
       if (t.id === 'b-icon-file' && t.files && t.files[0]) { uploadBuffIcon(t.files[0]).catch((e) => toast(e.message, 'error')); return; }
       if (t.dataset && t.dataset.binfo) { scheduleBInfo(); return; }
@@ -4985,7 +4985,7 @@ function scopeAllowsOne(map, key) {
   if (!set || !set.length) return true;
   const has = (k) => set.includes(k) || set.includes("unit");
   const scope = curScope();
-  if (scope === "common") return ["buff", "passive", "skill"].every(has);
+  if (scope === "common") { const nonUnit = set.filter((x) => x !== "unit"); return set.includes("unit") || nonUnit.length >= 2; }
   return has(scope);
 }
 
@@ -5376,7 +5376,7 @@ function mbPaletteHtml() {
   return '<div class="mb-pal-body">'
     + '<nav class="mb-cats" aria-label="积木分类">' + tabs + '</nav>'
     + '<div class="mb-pal-main"><div class="mb-legend">金色=必填参数；灰色虚线=可选（可留空，游戏按默认处理）</div>'
-    + '<div class="mb-pal-head"><div class="mb-swrap"><input id="mb-search" class="search" placeholder="搜索函数 / 时点" value="' + esc(S.mb.search) + '"><div id="mb-res" class="mb-res"></div></div></div>' + carry
+    + '<div class="mb-pal-head"><div class="mb-swrap"><input id="mb-search" class="search" placeholder="在本分类内搜索名称 / 说明 / 旧称" value="' + esc(S.mb.search) + '"></div></div>' + carry
     + '<div class="mb-items" id="mb-items">' + (items.join('') || '<div class="mb-empty2">没有匹配项</div>') + '</div>'
     + '</div></div>';
 }

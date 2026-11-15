@@ -290,3 +290,15 @@ export const ARG_COUNTS = {
     "weighteddamage": 1
   }
 };
+// @engine-merge-v1
+import { COMMANDS as ENGINE_ROWS_AC } from './engine-registry.mjs';
+(function mergeEngineArgCounts() {
+  for (const e of ENGINE_ROWS_AC) {
+    const bucket = ARG_COUNTS[e.kind];
+    if (!bucket) continue;
+    const cur = bucket[e.name];
+    if (typeof cur === 'number' && cur > 0) continue;
+    if (!e.aliasOf && typeof e.params === 'number') bucket[e.name] = Math.max(cur || 0, e.params | 0);
+  }
+})();
+

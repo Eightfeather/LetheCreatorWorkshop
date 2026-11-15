@@ -88,9 +88,19 @@ export const ENGINE_TIMINGS = [
   {"id":83,"en":"OnFieldedFromBackup","zh":"从替补上场时","src":"official"},
   {"id":84,"en":"OnReturnFromRetreat","zh":"撤退归队时","src":"official"},
   {"id":-1,"en":"RoundStart","zh":"回合开始","src":"game"},
-  {"id":85,"en":"TrigData","zh":"","src":"official"}
+  {"id":85,"en":"TrigData","zh":"","src":"official"},
+  {"id":86,"en":"OverwriteMPDMG","zh":"MP/伤害覆盖时","src":"engine"},
+  {"id":87,"en":"OverwriteChangeMP","zh":"MP变更覆盖时","src":"engine"},
+  {"id":88,"en":"OverwriteGainBuf","zh":"获得Buff覆盖时","src":"engine"},
+  {"id":89,"en":"OverwriteGiveBuf","zh":"施加Buff覆盖时","src":"engine"},
+  {"id":90,"en":"IsFreeRedirect","zh":"可自由转移时","src":"engine"},
+  {"id":91,"en":"CanFreeRedirectOther","zh":"可转移给他人判定","src":"engine"},
 ];
 
 export const TIMING_BY_ID = new Map(ENGINE_TIMINGS.map((t) => [t.id, t]));
 export const TIMING_BY_EN = new Map(ENGINE_TIMINGS.map((t) => [t.en, t]));
 export const TIMING_BY_ZH = new Map(ENGINE_TIMINGS.filter((t) => t.zh).map((t) => [t.zh, t]));
+
+/** 引擎时点别名（同义写法）→ 正式名。解析时归一，显示用正式名。 */
+export const TIMING_ALIASES = { BeforeChangeSanity: 'OverwriteMPDMG', OSA: 'OnSucceedAttack', WH: 'WhenHit', BSA: 'BeforeSA', BWH: 'BeforeWhenHit', SBS: 'StartBattleSkill', OnUseBuf: 'OnUseBuff', StartBehaviour: 'OnStartBehaviour', EndBehaviour: 'OnEndBehaviour', EnemyStartBehavior: 'EnemyStartBehaviour', OnImmortal: 'Immortal', OnOtherImmortal: 'ImmortalOther' };
+export function canonicalTiming(en) { const k = String(en || ''); return TIMING_ALIASES[k] || k; }

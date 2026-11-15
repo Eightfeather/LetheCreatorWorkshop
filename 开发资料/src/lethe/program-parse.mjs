@@ -11,6 +11,7 @@
  */
 
 import { canonicalCommand } from '../knowledge/modular-tables.mjs';
+import { canonicalTiming } from '../knowledge/timings.mjs';
 import { compileProgram } from './program.mjs';
 
 const PREFIX = 'Modular/';
@@ -191,10 +192,10 @@ export function parseScript(code) {
     const rest = first.slice(7);
     const k = rest.indexOf('(');
     if (k >= 0 && rest.endsWith(')')) {
-      row.timing = rest.slice(0, k).trim();
+      row.timing = canonicalTiming(rest.slice(0, k).trim());
       row.args = parseTimingArgs(rest.slice(k + 1, -1));
     } else {
-      row.timing = rest.trim();
+      row.timing = canonicalTiming(rest.trim());
     }
     i = 1;
   } else {
