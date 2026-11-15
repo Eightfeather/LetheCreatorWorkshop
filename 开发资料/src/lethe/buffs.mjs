@@ -1,10 +1,10 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson, writeFilesTransactional } from '../atomic.mjs';
 import { cleanName, SafetyError } from '../safety.mjs';
 import { entitiesOf, findLocaleEntry, modDirSafe, readModPayload } from './mods.mjs';
 import { ensureLayout } from './layout.mjs';
-import { readBuffMeta, writeBuffMeta } from './meta.mjs';
+import { buffMetaPath, readBuffMeta, writeBuffMeta } from './meta.mjs';
 
 /** Buff：实体 id 是字符串关键词（如 SkadiVibration），另需 0 字节关键词 txt + locale bufList 才能显示 */
 
@@ -256,6 +256,7 @@ export function writeBuffIcon(letheRoot, modName, id, { dataUrl, iconId }) {
   if (!existsSync(join(dir, txtRel))) files.push({ rel: txtRel, content: '' });
   files.push({ rel: 'custom_sprites/buffIcon_' + iid + '.png', content: buf });
   const res = writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+  try { writeBuffMeta(letheRoot, mod, bid, { touch: true, info: { iconId: iid } }); } catch (e) { /* meta 失败不影响图标落盘 */ }
   clearBuffCache(letheRoot);
   return { iconId: iid, rel: 'custom_sprites/buffIcon_' + iid + '.png', written: res.written };
 }
@@ -263,6 +264,35 @@ export function writeBuffIcon(letheRoot, modName, id, { dataUrl, iconId }) {
 export function patchBuffMeta(letheRoot, modName, id, patch) {
   const change = writeBuffMeta(letheRoot, modName, id, patch);
   return { change, meta: change.doc };
+}
+
+export function deleteBuff(letheRoot, modName, id) {
+  const mod = String(modName || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const theId = String(id || '');
+  const payload = readModPayload(dir);
+  const row = ((payload.data && payload.data.buff) || []).find((r) => String(r.id) === theId);
+  if (!row) throw new SafetyError('在 Mod 里找不到 buff ' + theId);
+  const absFile = join(dir, ...String(row.rel).split('/'));
+  const doc = readJson(absFile, null);
+  const list = entitiesOf(doc);
+  const files = [];
+  if (list.length > 1 && row.index >= 0) {
+    const rest = list.slice();
+    rest.splice(row.index, 1);
+    const nextDoc = Array.isArray(doc) ? rest : { ...doc, list: rest };
+    files.push({ rel: row.rel, content: JSON.stringify(nextDoc, null, 2) });
+  } else {
+    files.push({ rel: row.rel, content: null });
+  }
+  const localeRel = 'custom_limbus_locale/EN/bufList/' + theId + '.json';
+  if (existsSync(join(dir, ...localeRel.split('/')))) files.push({ rel: localeRel, content: null });
+  const txtRel = 'custom_buffs/' + theId + '.txt';
+  if (existsSync(join(dir, ...txtRel.split('/')))) files.push({ rel: txtRel, content: null });
+  writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+  try { rmSync(buffMetaPath(letheRoot, mod, theId), { force: true }); } catch (e) { /* ignore */ }
+  clearBuffCache(letheRoot);
+  return { deleted: theId, files: files.length };
 }
 
 export function clearBuffCache(letheRoot) { cache.delete(letheRoot); }

@@ -1,10 +1,10 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson, writeFilesTransactional } from '../atomic.mjs';
 import { cleanName, SafetyError } from '../safety.mjs';
 import { entitiesOf, findLocaleEntry, modDirSafe, readModPayload } from './mods.mjs';
 import { ensureLayout } from './layout.mjs';
-import { readPassiveMeta, writePassiveMeta } from './meta.mjs';
+import { passiveMetaPath, readPassiveMeta, writePassiveMeta } from './meta.mjs';
 
 /** 被动：实体 {id, attributeResonanceCondition[], requireIDList[]}；描述在 locale passiveList/<id> */
 
@@ -204,6 +204,33 @@ export function importPassives(letheRoot, { name, ids, source = { kind: 'vanilla
 export function patchPassiveMeta(letheRoot, modName, id, patch) {
   const change = writePassiveMeta(letheRoot, modName, id, patch);
   return { change, meta: change.doc };
+}
+
+export function deletePassive(letheRoot, modName, id) {
+  const mod = String(modName || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const theId = String(id || '');
+  const payload = readModPayload(dir);
+  const row = ((payload.data && payload.data.passive) || []).find((r) => String(r.id) === theId);
+  if (!row) throw new SafetyError('在 Mod 里找不到 passive ' + theId);
+  const absFile = join(dir, ...String(row.rel).split('/'));
+  const doc = readJson(absFile, null);
+  const list = entitiesOf(doc);
+  const files = [];
+  if (list.length > 1 && row.index >= 0) {
+    const rest = list.slice();
+    rest.splice(row.index, 1);
+    const nextDoc = Array.isArray(doc) ? rest : { ...doc, list: rest };
+    files.push({ rel: row.rel, content: JSON.stringify(nextDoc, null, 2) });
+  } else {
+    files.push({ rel: row.rel, content: null });
+  }
+  const localeRel = 'custom_limbus_locale/EN/passiveList/' + theId + '.json';
+  if (existsSync(join(dir, ...localeRel.split('/')))) files.push({ rel: localeRel, content: null });
+  writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+  try { rmSync(passiveMetaPath(letheRoot, mod, theId), { force: true }); } catch (e) { /* ignore */ }
+  clearPassiveCache(letheRoot);
+  return { deleted: theId, files: files.length };
 }
 
 export function clearPassiveCache(letheRoot) { cache.delete(letheRoot); }

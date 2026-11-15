@@ -1,10 +1,10 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson, writeFilesTransactional } from '../atomic.mjs';
 import { cleanName, SafetyError } from '../safety.mjs';
 import { entitiesOf, findLocaleEntry, modDirSafe, readModPayload } from './mods.mjs';
 import { ensureLayout } from './layout.mjs';
-import { normalizeId, readSkillMeta, skillMetaPath, writeSkillMeta } from './meta.mjs';
+import { normalizeId, readSkillMeta, skillCodePath, skillMetaPath, writeSkillMeta } from './meta.mjs';
 
 function walkJson(dir, out = [], depth = 0) {
   if (!existsSync(dir) || depth > 4) return out;
@@ -288,6 +288,33 @@ function vanillaPersonalityIndex(letheRoot) {
   }
   vpCache.set(letheRoot, { at: Date.now(), list });
   return list;
+}
+
+export function deleteSkill(letheRoot, modName, id) {
+  const mod = String(modName || '');
+  const dir = modDirSafe(letheRoot, mod);
+  const theId = String(id || '');
+  const payload = readModPayload(dir);
+  const row = ((payload.data && payload.data.skill) || []).find((r) => String(r.id) === theId);
+  if (!row) throw new SafetyError('在 Mod 里找不到 skill ' + theId);
+  const absFile = join(dir, ...String(row.rel).split('/'));
+  const doc = readJson(absFile, null);
+  const list = entitiesOf(doc);
+  const files = [];
+  if (list.length > 1 && row.index >= 0) {
+    const rest = list.slice();
+    rest.splice(row.index, 1);
+    const nextDoc = Array.isArray(doc) ? rest : { ...doc, list: rest };
+    files.push({ rel: row.rel, content: JSON.stringify(nextDoc, null, 2) });
+  } else {
+    files.push({ rel: row.rel, content: null });
+  }
+  const localeRel = 'custom_limbus_locale/EN/skillList/' + theId + '.json';
+  if (existsSync(join(dir, ...localeRel.split('/')))) files.push({ rel: localeRel, content: null });
+  writeFilesTransactional({ modDir: dir, files, root: letheRoot, mod });
+  try { rmSync(skillMetaPath(letheRoot, mod, theId), { force: true }); } catch (e) { /* ignore */ }
+  clearSkillCache(letheRoot);
+  return { deleted: theId, files: files.length };
 }
 
 export function clearSkillCache(letheRoot) { cache.delete(letheRoot); }

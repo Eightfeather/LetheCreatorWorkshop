@@ -1946,3 +1946,8 @@ body{font-family:var(--ui-font,"Segoe UI","Microsoft YaHei UI",sans-serif)}
 .list-collapsed .edit-mods .panel-head > span{display:none}
 .list-collapsed .edit-mods .panel-body{display:none}
 /* @edit-mods-v1:end */
+
+/* @desc-len-v1:start */
+.desc-len { font-size: 11px; color: #8c7f6d; text-align: right; margin-top: 2px; user-select: none; }
+.desc-len.near { color: #C98A3C; }
+/* @desc-len-v1:end */

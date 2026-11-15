@@ -18,10 +18,10 @@ import { createDllBackup, createUserBackup, listDllBackups, listUserBackups, rea
 import { autoBackupsDir, journalDir, markCleanExit, markRunning, readSessionMarker, readState, updateState, writeState } from '../lethe/state.mjs';
 import { restoreFromSlot, slotInfo } from '../lethe/snapshot.mjs';
 import { homeStats } from '../lethe/stats.mjs';
-import { createSkill, getSkill, importSkills, listSkills, searchSkillIndex, skillsOfVanillaPersonality, clearSkillCache, skillExistsAnywhere } from '../lethe/skills.mjs';
+import { createSkill, deleteSkill, getSkill, importSkills, listSkills, searchSkillIndex, skillsOfVanillaPersonality, clearSkillCache, skillExistsAnywhere } from '../lethe/skills.mjs';
 import { BUFF_CLASSES, BUFF_CLASS_COMPAT, BUFF_TYPES, COIN_COLORS, DEFAULT_BUFF_INFO, DEFAULT_INFO, DEFAULT_PASSIVE_INFO, MODULE_KINDS, PASSIVE_CONDITION_TYPES, PHYSICAL_TYPES, SIN_TYPES, createModule, deleteModule, getModule, listModules, readSkillMeta, readPassiveMeta, readBuffMeta, updateModule, writeSkillCode, writeSkillMeta, writePassiveMeta, writeBuffMeta, writeModuleProgram, coinColor, skillCodePath } from '../lethe/meta.mjs';
-import { createPassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex, clearPassiveCache } from '../lethe/passives.mjs';
-import { createBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex, writeBuffIcon, clearBuffCache } from '../lethe/buffs.mjs';
+import { createPassive, deletePassive, getPassive, importPassives, listPassives, patchPassiveMeta, searchPassiveIndex, clearPassiveCache } from '../lethe/passives.mjs';
+import { createBuff, deleteBuff, getBuff, importBuffs, listBuffs, patchBuffMeta, searchBuffIndex, writeBuffIcon, clearBuffCache } from '../lethe/buffs.mjs';
 import { analyzeDescription, buffIconIndex, fromGameText, keywordTables, suggestCandidates, suggestUnknown, toGameText } from '../lethe/keywords.mjs';
 import { TIMING_ARGS } from '../knowledge/timing-args.mjs';
 import { canonicalCode, parseScripts } from '../lethe/program-parse.mjs';
@@ -946,30 +946,34 @@ export function buildApi(ctx) {
             const hasCodeFile = fs.existsSync(codePath);
             const draft = (one.meta && one.meta.code) || {};
             const draftCoins = Array.isArray(draft.coins) ? draft.coins : [];
-            // 过期草稿判定（两道）：①硬币数与文件不一致；②草稿写盘时间早于技能实体文件（说明文件后来被改过，如加了硬币 / 改了威力）
+            // 新鲜度只看时间：代码文件不比技能实体文件旧，就算「草稿是当前真相」。
+            // 硬币数量与文件不一致不再算过期——用户增删硬币后硬币数本来就会变（D-1 的根因）。
             let draftFresh = false;
-            if (hasCodeFile && draftCoins.length === fileCoins.length) {
+            if (hasCodeFile) {
               try {
                 const codeMs = fs.statSync(codePath).mtimeMs;
                 const entMs = fs.statSync(join(modDirSafe(letheRoot, q.get('name')), one.rel)).mtimeMs;
                 draftFresh = codeMs >= entMs - 1500;
               } catch (e) { draftFresh = true; }
             }
+            const colorOf = (i) => (fileCoins[i] && fileCoins[i].color) || 'GREY';
             if (draftFresh) {
               return {
                 ...draft,
                 coins: draftCoins.map((c, i) => ({
                   ...c,
-                  color: fileCoins[i].color,
-                  value: Number.isFinite(Number(c && c.value)) ? Number(c.value) : fileCoins[i].value,
+                  color: colorOf(i),
+                  value: Number.isFinite(Number(c && c.value)) ? Number(c.value) : ((fileCoins[i] && fileCoins[i].value) || 0),
                 })),
+                coinMismatch: draftCoins.length !== fileCoins.length ? { draft: draftCoins.length, file: fileCoins.length } : null,
               };
             }
+            const baseCoins = fileCoins.length ? fileCoins : draftCoins;
             return {
               ...draft,
-              coins: fileCoins.map((f, i) => ({
-                color: f.color,
-                value: f.value,
+              coins: baseCoins.map((f, i) => ({
+                color: (f && f.color) || 'GREY',
+                value: Number.isFinite(Number(f && f.value)) ? Number(f.value) : 0,
                 modules: Array.isArray(draftCoins[i] && draftCoins[i].modules) ? [...draftCoins[i].modules] : [],
               })),
             };
@@ -1164,6 +1168,13 @@ export function buildApi(ctx) {
       const change = writeSkillCode(letheRoot, body.name, id, { ...(body.code || {}), coinCount: (body.code && body.code.coins ? body.code.coins.length : meta.info.coinCount) });
       const merged = readSkillMeta(letheRoot, body.name, id);
       return { ok: true, meta: merged, changed: change.before !== change.after };
+    },
+
+    'POST /api/skill/delete': (body) => {
+      if (String(body.confirm || '') !== 'DELETE') throw new SafetyError('删除需要确认（confirm=DELETE）');
+      const { letheRoot } = need();
+      const out = deleteSkill(letheRoot, String(body.name || ''), String(body.id || ''));
+      return { ok: true, ...out };
     },
 
     'POST /api/skill/save': (body) => {
@@ -1408,6 +1419,13 @@ export function buildApi(ctx) {
       return { ok: true, meta: change.doc, changed: change.before !== change.after };
     },
 
+    'POST /api/passive/delete': (body) => {
+      if (String(body.confirm || '') !== 'DELETE') throw new SafetyError('删除需要确认（confirm=DELETE）');
+      const { letheRoot } = need();
+      const out = deletePassive(letheRoot, String(body.name || ''), String(body.id || ''));
+      return { ok: true, ...out };
+    },
+
     'POST /api/passive/save': (body) => {
       const id = String(body.id);
       session.clear(body.name, 'passive:' + id);
@@ -1565,6 +1583,13 @@ export function buildApi(ctx) {
       const id = String(body.id);
       const change = writeBuffMeta(letheRoot, body.name, id, { code: body.code || {} });
       return { ok: true, meta: change.doc, changed: change.before !== change.after };
+    },
+
+    'POST /api/buff/delete': (body) => {
+      if (String(body.confirm || '') !== 'DELETE') throw new SafetyError('删除需要确认（confirm=DELETE）');
+      const { letheRoot } = need();
+      const out = deleteBuff(letheRoot, String(body.name || ''), String(body.id || ''));
+      return { ok: true, ...out };
     },
 
     'POST /api/buff/save': (body) => {

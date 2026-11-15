@@ -229,13 +229,25 @@ export function writeSkillMeta(letheRoot, mod, id, patch = {}) {
   const p = skillMetaPath(letheRoot, mod, id);
   const before = existsSync(p) ? readFileSync(p, 'utf8') : null;
   const prev = normalizeSkillMeta(before ? JSON.parse(before) : null, id);
+  // 硬币真相在代码文件里：写 meta 时以代码文件为准，避免陈旧草稿把硬币数带偏
+  const cp = skillCodePath(letheRoot, mod, id);
+  let codeFromFile = null;
+  if (existsSync(cp)) {
+    try {
+      const j = JSON.parse(readFileSync(cp, 'utf8'));
+      if (j && j.code && Array.isArray(j.code.coins)) codeFromFile = j.code;
+    } catch (e) { codeFromFile = null; }
+  }
   const next = normalizeSkillMeta({
     ...prev,
+    code: codeFromFile || prev.code,
     info: { ...prev.info, ...(patch.info || {}) },
     description: patch.description !== undefined ? patch.description : prev.description,
     coinDescs: patch.coinDescs !== undefined ? patch.coinDescs : prev.coinDescs,
     updatedAt: patch.touch === false ? prev.updatedAt : nowIso(),
   }, id);
+  assertDescText(next.description, '技能描述');
+  (next.coinDescs || []).forEach((d, i) => assertDescText(d, '第 ' + (i + 1) + ' 枚硬币的描述'));
   const after = JSON.stringify(next, null, 2);
   mkdirSync(join(p, '..'), { recursive: true });
   writeFileAtomic(p, after);
@@ -343,6 +355,7 @@ function writeMetaDoc(p, norm, id, patch = {}) {
     description: patch.description !== undefined ? patch.description : prev.description,
     updatedAt: patch.touch === false ? prev.updatedAt : nowIso(),
   }, id);
+  assertDescText(next.description, '描述');
   const after = JSON.stringify(next, null, 2);
   mkdirSync(join(p, '..'), { recursive: true });
   writeFileAtomic(p, after);
@@ -388,6 +401,13 @@ export function ensureTestModules(letheRoot) {
 
 /* ------------------------------ 模块积木程序 ------------------------------ */
 const PROG_MAX_NODES = 400;
+/** 单个描述框（技能段 / 单枚硬币 / 被动 / Buff）的字符上限（UTF-16 code unit） */
+export const DESC_MAX = 3000;
+function assertDescText(t, label) {
+  const s = String(t == null ? '' : t);
+  if (s.length > DESC_MAX) throw new SafetyError(label + '最多 ' + DESC_MAX + ' 个字符（当前 ' + s.length + '）');
+  return s;
+}
 const PROG_MAX_DEPTH = 8;
 const BLOCK_KINDS = new Set(['timing', 'loop', 'cons', 'if', 'ifnot', 'continueif', 'assign', 'raw']);
 const LOGIC_KINDS = new Set(['none', 'and', 'or', 'xor']);

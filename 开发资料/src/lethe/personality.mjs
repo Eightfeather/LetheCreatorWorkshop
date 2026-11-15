@@ -421,6 +421,21 @@ export function createPersonality(letheRoot, { name, characterId, id, displayNam
   };
   if (hp && typeof hp === 'object') entity.hp = { ...entity.hp, ...hp };
 
+  // D-3：新建人格与保存走同一套字段校验（稀有度/血量/防御修正/速度/阈值/抗性等），避免绕过
+  const checked = normalizePersonalityPatch(entity);
+  Object.assign(entity, checked);
+
+  const SINNER_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 400005];
+  if (!SINNER_IDS.includes(cid)) throw new SafetyError('characterId 只能是 1–12 的罪人（或 400005 贾惜春）');
+
+  if (appearance) {
+    const opts = appearanceOptions(letheRoot);
+    if (!opts.includes(appearance)) throw new SafetyError('外观资源不存在：' + appearance);
+  }
+
+  const display = String(displayName || title || '');
+  if (display.length > 100) throw new SafetyError('人格名称最多 100 个字符（当前 ' + display.length + '）');
+
   const entry = {
     id: String(pid),
     name: sinnerName(letheRoot, cid) || String(cid),

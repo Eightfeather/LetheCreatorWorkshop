@@ -50,11 +50,24 @@
     const r = e.reason;
     show('有一个异步操作失败', String((r && (r.stack || r.message)) || r || '未知原因'));
   });
-  setTimeout(function () {
-    if (!window.__WBS || !window.__WBS.status) {
-      show('界面在 12 秒内没有启动完成', '可能原因：本地后端未就绪、脚本报错、或 WebView2 渲染异常。\n点「重试」重新加载；若仍失败，点「以兼容渲染重启」。');
-    }
-  }, 12000);
+  function hide() {
+    try { const el = document.getElementById('boot-fatal'); if (el) el.style.display = 'none'; } catch (e) {}
+  }
+  window.__WBHideFatal = hide;
+  // 说明：这里同样是“兜底提示”，不是判死刑。每 1.5 秒看一次，最多 45 秒；
+  // 一旦 window.__WBS 就绪就自动隐藏提示层（避免“页面其实正常、提示却一直挂着”）。
+  (function bootPoll() {
+    var started = Date.now();
+    var timer = setInterval(function () {
+      if (window.__WBS && window.__WBS.status) { clearInterval(timer); hide(); return; }
+      if (Date.now() - started > 45000) {
+        clearInterval(timer);
+        if (!(window.__WBS && window.__WBS.status) && document.readyState === 'complete') {
+          show('界面在 45 秒内没有启动完成', '可能原因：本地后端未就绪、脚本报错、或 WebView2 渲染异常。\n点「重试」重新加载；若仍失败，点「以兼容渲染重启」。');
+        }
+      }
+    }, 1500);
+  })();
 })();
 
 /* The Lethe Workbench · 前端主程序 v0.2 */
@@ -316,6 +329,21 @@ function assertState() {
   return true;
 }
 
+function decorateDescCounters() {
+  document.querySelectorAll('.desc-input').forEach((t) => {
+    if (!t.id) return;
+    let c = document.querySelector('[data-len-for="' + t.id + '"]');
+    if (!c) {
+      c = document.createElement('div');
+      c.className = 'desc-len';
+      c.dataset.lenFor = t.id;
+      t.insertAdjacentElement('afterend', c);
+    }
+    c.textContent = t.value.length + '/3000';
+    c.className = 'desc-len' + (t.value.length > 2800 ? ' near' : '');
+  });
+}
+
 function render() {
   assertState();
   const view = $('#view');
@@ -347,6 +375,7 @@ function render() {
   else if (S.view === 'md') view.innerHTML = renderMdView();
   else view.innerHTML = renderImport();
   updateDock();
+  decorateDescCounters();
   restoreScrollMap(scrollMap);
   S._navSnap = snap;
   if (tr) playEnter(tr, ghost);
@@ -1389,7 +1418,7 @@ function renderPersonalityDetail() {
       ${locked ? '<div class="banner lock">🔒 该人格的源码已被手动修改并锁定：表单已锁定，只能通过「查看源代码」修改（删除人格可解除）。</div>' : ''}
 
       ${pSection('基础数值', `
-        ${pRow('人格名称（外显）', `<input data-field="locale.title" value="${esc(l.title ?? '')}" placeholder="必填">`)}
+        ${pRow('人格名称（外显）', `<input data-field="locale.title" maxlength="100" value="${esc(l.title ?? '')}" placeholder="必填（≤100 字）">`)}
         ${pRow('所属罪人', `<span class="p-chip">${esc(l.name || '由所选罪人自动填入')}</span>`, '保存时自动写入 locale.name')}
         ${pRow('人格 ID', vanilla ? `<span class="p-chip">${esc(p.id)} · 原版不可改</span>` : `<span class="p-chip">${esc(p.id)}</span> <button class="btn ghost xs" data-act="p-change-id">修改</button>`, '保存前会查重；会同步改名实体文件与贴图')}
         ${pRow('稀有度', rankPicker + `<select class="sr-only" data-field="entity.rank" tabindex="-1" aria-hidden="true">${rankList.map((r) => `<option value="${r}" ${Number(e.rank) === r ? 'selected' : ''}>${r}</option>`).join('')}</select>`)}
@@ -1698,6 +1727,9 @@ async function flushPatch() {
     if (undoBtn) undoBtn.disabled = !(Number(S.session?.undo) > 0);
     if (redoBtn) redoBtn.disabled = !(Number(S.session?.redo) > 0);
     if (!res.changed) return;
+    // S-2：写后回读，让服务端归一化（速度互检、locale.name 自动写罪人名等）立刻反映到界面
+    try { await loadPersonality(S.selected, S.personalityId); } catch (e) { /* 回读失败不影响已写盘结果 */ }
+    render();
   } finally { patching = false; }
 }
 
@@ -2985,6 +3017,10 @@ document.addEventListener('compositionend', (e) => {
 document.addEventListener('input', (e) => {
   if (imeComposing || e.isComposing) return;
   const t = e.target;
+  if (t && t.classList && t.classList.contains('desc-input') && t.id) {
+    const c = document.querySelector('[data-len-for="' + t.id + '"]');
+    if (c) { c.textContent = t.value.length + '/3000'; c.className = 'desc-len' + (t.value.length > 2800 ? ' near' : ''); }
+  }
   if (t && (t.id === 'skill-desc' || t.id === 'p-desc' || t.id === 'buff-desc' || (t.classList && t.classList.contains('coin-desc')))) { S.lastDescEl = t; descPopFromInput(t); }
 
   /* ---- 镜牢编辑：输入即写回草稿（不重绘，避免打断输入） ---- */
@@ -3186,7 +3222,6 @@ document.addEventListener('change', (e) => {
     return;
   }
   if (t.dataset && t.dataset.pcond) { schedulePInfo(); return; }
-  if (t.dataset && t.dataset.tagsel) { pApplyTag(t.dataset.tagsel).catch((err) => toast(err.message, 'error')); return; }
   if (t.dataset && t.dataset.info) { scheduleInfo(); return; }
   if (t.dataset && t.dataset.pinfo) { schedulePInfo(); return; }
   if (t.dataset && t.dataset.binfo) { scheduleBInfo(); return; }
@@ -3416,7 +3451,10 @@ function pNormalizeSkill(sk) {
   out.coinColors = Array.isArray(fi.coinColors) ? fi.coinColors : (out.coinColors || []);
     out.skillTier = Number(fi.skillTier) || Number(out.skillTier) || 1;
   }
-  const total = Number(out.coinTotal || 0);
+  // 硬币数量以“代码草稿（如果服务端判定为最新）”为准；草稿缺失时才回落到实体文件的 coinTotal。
+  // 旧写法无条件按 coinTotal 截断，会把用户刚在界面上“＋”出来的硬币当场吞掉（D-1 的界面侧同源问题）。
+  const codeN = (out.code && Array.isArray(out.code.coins)) ? out.code.coins.length : 0;
+  const total = codeN > 0 ? codeN : Number(out.coinTotal || 0);
   if (out.code && Array.isArray(out.code.coins) && total > 0) {
     const coins = out.code.coins.slice(0, total).map((c) => ({ ...c }));
     while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
@@ -3645,6 +3683,7 @@ function renderSkillMain() {
     + '<span class="spacer"></span>'
     + '<button class="btn ghost sm" data-act="undo"' + (sess.undo ? '' : ' disabled') + '>撤销</button>'
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
+    + '<button class="btn danger sm" data-act="del-skill">删除</button>'
     + '<button class="btn primary sm" data-act="save-personality">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
     + '<div class="skill-body">'
@@ -3918,7 +3957,7 @@ function renderSkillDesc(sk) {
         return '<div class="coin-desc-head"><span class="cd-tag">硬币 ' + (i + 1) + '</span>'
           + (segs > 1 ? '<span class="seg-badge">' + segs + ' 段</span>' : '')
           + '<span class="muted">' + tip + '</span></div>'
-          + '<div class="desc-edit"><textarea id="coin-desc-' + i + '" class="desc-input coin-desc" data-index="' + i + '" data-rich="1" data-desc="coin:' + i + '" spellcheck="false" rows="' + rows + '" placeholder="例如：[命中时]对目标施加1层[烧伤]">' + esc(ct) + '</textarea>'
+          + '<div class="desc-edit"><textarea id="coin-desc-' + i + '" class="desc-input coin-desc" data-index="' + i + '" data-rich="1" data-desc="coin:' + i + '" maxlength="3000" spellcheck="false" rows="' + rows + '" placeholder="例如：[命中时]对目标施加1层[烧伤]">' + esc(ct) + '</textarea>'
           + '<div class="desc-rich" data-rich-for="coin:' + i + '" hidden></div></div>';
       })()
       + '<div class="coin-check" id="coin-check-' + i + '">' + descCheckHtml(cst) + '</div>'
@@ -3928,7 +3967,7 @@ function renderSkillDesc(sk) {
   const fromFile = (sk.descSource === 'locale') && !String(sk.descriptionEdited || '');
   return '<div class="desc-wrap">'
     + '<div class="desc-block"><div class="desc-block-head"><strong>技能描述</strong><span class="muted">技能本体（非硬币）的说明文本，用 [关键词] 书写</span></div>'
-    + '<div class="desc-edit"><textarea id="skill-desc" class="desc-input" data-rich="1" data-desc="skill" spellcheck="false" rows="6" placeholder="例如：[使用时]使本技能的硬币威力+1">' + esc(text) + '</textarea>'
+    + '<div class="desc-edit"><textarea id="skill-desc" class="desc-input" data-rich="1" data-desc="skill" maxlength="3000" spellcheck="false" rows="6" placeholder="例如：[使用时]使本技能的硬币威力+1">' + esc(text) + '</textarea>'
     + '<div class="desc-rich" data-rich-for="skill" hidden></div></div>'
     + '<div id="desc-check">' + descCheckHtml(st) + '</div></div>'
     + (() => {
@@ -4028,8 +4067,8 @@ async function flushInfo() {
   if (infoOut.canDuel == null) infoOut.canDuel = info.canDuel != null ? Boolean(info.canDuel) : infoOut.defType === 'ATTACK';
   if (infoOut.defType === 'EVADE') infoOut.canDuel = false;
   S.skill = { ...S.skill, info: infoOut, infoSource: 'file', skillTier: Number(infoOut.skillTier) || S.skill.skillTier };
-  const total = Number(res.info.coinCount) || before;
-  const coins = (S.skill.code?.coins || []).slice(0, total).map((c) => ({ ...c }));
+  const total = Math.max(1, Math.min(9, Number(res.info.coinCount) || before || 1));
+  const coins = (S.skill.code?.coins || []).map((c) => ({ ...c }));
   while (coins.length < total) coins.push({ color: 'GREY', value: 0, modules: [] });
   S.skill = { ...S.skill, code: { ...(S.skill.code || {}), coins } };
   S.session = res.session;
@@ -4266,6 +4305,7 @@ async function commitSkill() {
   S.session = res.session;
   const applied = await api('/api/skill/apply', { method: 'POST', body: { name: S.selected, id: S.skillId } });
   toast('已保存并写入游戏文件（' + (applied.applied || 0) + ' 条脚本' + ((applied.missing || []).length ? '，缺 ' + applied.missing.length + ' 个模块' : '') + '）', 'ok');
+  await reloadSkill();
   render();
 }
 
@@ -6680,6 +6720,7 @@ function renderPassiveMain() {
     + '<span class="spacer"></span>'
     + '<button class="btn ghost sm" data-act="undo"' + (sess.undo ? '' : ' disabled') + '>撤销</button>'
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
+    + '<button class="btn danger sm" data-act="del-passive">删除</button>'
     + '<button class="btn primary sm" data-act="save-passive">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
     + '<div class="skill-body passive-body"><div class="skill-side">' + renderPassiveInfo(p) + '</div>'
@@ -7106,6 +7147,40 @@ function renderBuffScriptsEditor(b) {
     + '</div></div>';
 }
 
+async function deleteById(kind, id) {
+  if (!S.selected || !id) return;
+  await api('/api/' + kind + '/delete', { method: 'POST', body: { name: S.selected, id, confirm: 'DELETE' } });
+  toast('已删除 ' + id, 'ok');
+  if (kind === 'skill') {
+    S.skill = null; S.skillId = null; S.descCheck = null; S.descChecks = null;
+    await loadSkillList(S.selected);
+  } else if (kind === 'passive') {
+    S.passive = null; S.passiveId = null; S.pDescCheck = null;
+    await loadPassiveList(S.selected);
+  } else {
+    S.buff = null; S.buffId = null; S.bDescCheck = null; S.buffExtras = null;
+    await loadBuffList(S.selected);
+  }
+  render();
+}
+
+function askDelete(kind, id) {
+  if (!id) return;
+  const label = kind === 'skill' ? '技能' : (kind === 'passive' ? '被动' : 'Buff');
+  actions['confirm-del-' + kind] = async () => {
+    closeModal();
+    try { await deleteById(kind, id); } catch (e) { toast(e.message, 'error'); }
+  };
+  modal({
+    title: '删除' + label + ' ' + id,
+    body: '<p>确定删除 <b>' + esc(String(id)) + '</b> 吗？</p>'
+      + '<p class="muted">会同时删掉它的本地化条目与编辑器草稿；已经引用它的技能/被动/Buff 不会自动清理，需要你手动改。</p>'
+      + '<p class="muted">此操作不可撤销。</p>',
+    footer: '<button class="btn ghost" data-act="close-modal">取消</button>'
+      + '<button class="btn danger" data-act="confirm-del-' + kind + '">确认删除</button>',
+  });
+}
+
 function renderBuffMain() {
   if (!S.buff) {
     return '<section class="panel skill-main"><div class="panel-head">Buff</div><div class="panel-body">'
@@ -7118,17 +7193,19 @@ function renderBuffMain() {
   const types = S.keywords?.buffTypes || [{ id: 'Positive', zh: '增益' }, { id: 'Negative', zh: '减益' }, { id: 'Neutral', zh: '中性' }];
   const compatList = S.keywords?.buffClassesCompat || [];
   const compat = compatList.find((x) => x.id === info.buffClass);
-  const classField = (compat
-    ? '<label class="field"><span>Buff 种类</span><select disabled title="兼容类别：保存时保持原值，不做修改"><option>兼容（原值：' + esc(compat.id) + '）</option></select></label>'
-    : sel('Buff 种类', 'buffClass', classes));
   const opt = (arr, v) => arr.map((x) => '<option value="' + esc(x.id) + '"' + (String(x.id) === String(v) ? ' selected' : '') + '>' + esc(x.zh || x.id) + '</option>').join('');
   const field = (label, key, type, extra) => '<label class="field"><span>' + label + '</span><input type="' + (type || 'number') + '" data-binfo="' + key + '" value="' + esc(info[key] ?? '') + '" ' + (extra || '') + '></label>';
   const sel = (label, key, arr) => '<label class="field"><span>' + label + '</span><select data-binfo="' + key + '">' + opt(arr, info[key]) + '</select></label>';
+  // 兼容类别（VariableBuff 等）只读显示；注意必须放在 opt/sel 之后，否则会 TDZ 报错 'sel' before initialization
+  const classField = (compat
+    ? '<label class="field"><span>Buff 种类</span><select disabled title="兼容类别：保存时保持原值，不做修改"><option>兼容（原值：' + esc(compat.id) + '）</option></select></label>'
+    : sel('Buff 种类', 'buffClass', classes));
   return '<section class="panel skill-main"><div class="panel-head skill-head">'
     + '<div class="skill-title"><strong>' + esc(b.name || b.id) + '</strong><small>' + esc(b.id) + (b.override ? ' · 原版覆盖' : '') + '</small></div>'
     + '<span class="spacer"></span>'
     + '<button class="btn ghost sm" data-act="undo"' + (sess.undo ? '' : ' disabled') + '>撤销</button>'
     + '<button class="btn ghost sm" data-act="redo"' + (sess.redo ? '' : ' disabled') + '>重做</button>'
+    + '<button class="btn danger sm" data-act="del-buff">删除</button>'
     + '<button class="btn primary sm" data-act="save-buff">保存</button>'
     + '<span class="session-state ' + (sess.dirty ? 'dirty' : '') + '" id="session-state">' + (sess.dirty ? '有未保存改动' : '已保存') + '</span></div>'
     + '<div class="skill-body"><div class="skill-side"><div class="info-card"><div class="col-title">Buff 基础信息</div><div class="grid-2">'
@@ -7261,7 +7338,7 @@ function renderSimpleDesc(kind, doc) {
   const fromVanilla = Boolean(doc) && doc.descriptionSource === 'vanilla';
   const fileWord = kind === 'passive' ? '被动' : 'Buff';
   return '<div class="desc-wrap"><div class="desc-block"><div class="desc-block-head"><strong>描述</strong><span class="muted">用 [关键词] 书写，保存时转游戏格式</span></div>'
-    + '<div class="desc-edit"><textarea id="' + id + '" class="desc-input" data-rich="1" data-desc="' + kind + '" spellcheck="false" rows="10" placeholder="例如：[回合开始时]获得1层[烧伤]">' + esc(text) + '</textarea>'
+    + '<div class="desc-edit"><textarea id="' + id + '" class="desc-input" data-rich="1" data-desc="' + kind + '" maxlength="3000" spellcheck="false" rows="10" placeholder="例如：[回合开始时]获得1层[烧伤]">' + esc(text) + '</textarea>'
     + '<div class="desc-rich" data-rich-for="' + kind + '" hidden></div></div>'
     + (kind === 'buff' ? '<div class="hint muted">可用 <b>{0}</b> 表示当前 buff 强度、<b>{1}</b> 表示层数（游戏内会替换成实际数值）。</div>' : '')
     + '<div class="desc-check ' + ((st.unknown || []).length ? 'bad' : 'ok') + '" id="' + id + '-check">'
@@ -7273,6 +7350,20 @@ let pDescTimer = null;
 let bDescTimer = null;
 let pInfoTimer = null;
 let bInfoTimer = null;
+
+/* 被动/Buff 的「信息 / 描述 / 基础字段」写盘调度：防抖后调用已有的 flush* */
+function schedulePInfo() {
+  clearTimeout(pInfoTimer);
+  pInfoTimer = setTimeout(() => { flushPInfo().catch((e) => toast(e.message, 'error')); }, 400);
+}
+function scheduleBDesc() {
+  clearTimeout(bDescTimer);
+  bDescTimer = setTimeout(() => { flushBDesc().catch((e) => toast(e.message, 'error')); }, 700);
+}
+function scheduleBuffFields() {
+  clearTimeout(bInfoTimer);
+  bInfoTimer = setTimeout(() => { flushBuffFields().catch((e) => toast(e.message, 'error')); }, 400);
+}
 
 function readBuffFields() {
   const out = {};
@@ -7439,6 +7530,7 @@ async function commitPassive() {
   S.session = res.session;
   const applied = await api('/api/passive/apply', { method: 'POST', body: { name: S.selected, id: S.passiveId } });
   toast('已保存并写入游戏文件（' + (applied.applied || 0) + ' 条被动脚本）', 'ok');
+  await reloadPassive();
   render();
 }
 
@@ -7456,6 +7548,7 @@ async function commitBuff() {
   S.session = res.session;
   const applied = await api('/api/buff/apply', { method: 'POST', body: { name: S.selected, id: S.buffId } });
   toast('已保存并写入游戏文件（' + (applied.applied || 0) + ' 条 Buff 脚本）', 'ok');
+  await reloadBuff();
   render();
 }
 
@@ -7774,6 +7867,9 @@ Object.assign(actions, {
   },
   'new-passive': () => openNewPassive(),
   'submit-create-passive': () => submitCreatePassive(),
+  'del-skill': () => askDelete('skill', S.skillId),
+  'del-passive': () => askDelete('passive', S.passiveId),
+  'del-buff': () => askDelete('buff', S.buffId),
   'save-passive': () => savePassiveCurrent().catch((e) => toast(e.message, 'error')),
   'import-passive': () => openImportPassive(),
   'pick-import-passive': (el) => pickImportPassive(el),

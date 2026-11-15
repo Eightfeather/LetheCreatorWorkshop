@@ -18,6 +18,8 @@ namespace TheLetheWorkbench
 
         private Panel _fatalPanel;
         private Timer _bootTimer;
+        private DateTime _bootDeadline;
+        private bool _pageReady;
         private int _processFailures;
         private int _renderRecoveries;
         private bool _compatRender;
@@ -130,27 +132,58 @@ namespace TheLetheWorkbench
 
         private void StartBootWatchdog()
         {
+            // 说明：这里只是“兜底”，不是“判死刑”。
+            //   - 计时从页面加载完成（NavigationCompleted 成功）开始，不含后端启动与首个 HTTP 往返；
+            //   - 每 1.2 秒轮询一次，最多 45 秒，任一次拿到 window.__WBS 即视为就绪并自动撤掉错误页；
+            //   - ExecuteScriptAsync 在页面忙/导航中会抛异常，属“还不知道”，必须重试而不是静默放弃。
             StopBootWatchdog();
-            _bootTimer = new Timer { Interval = 12000 };
+            _bootDeadline = DateTime.UtcNow.AddSeconds(45);
+            _bootTimer = new Timer { Interval = 1200 };
             _bootTimer.Tick += async (s, e) =>
             {
-                _bootTimer.Stop();
+                if (_pageReady) { StopBootWatchdog(); return; }
+                bool ready = false;
                 try
                 {
                     string r = await _web.CoreWebView2.ExecuteScriptAsync("Boolean(window.__WBS)");
-                    if (!string.Equals(r, "true", StringComparison.OrdinalIgnoreCase))
+                    ready = string.Equals(r, "true", StringComparison.OrdinalIgnoreCase);
+                }
+                catch { ready = false; }
+
+                if (ready)
+                {
+                    MarkPageReady();
+                    return;
+                }
+                if (DateTime.UtcNow >= _bootDeadline)
+                {
+                    StopBootWatchdog();
+                    if (!_pageReady)
                     {
                         ShowFatal(
                             "界面脚本没有启动",
-                            "页面已经加载，但前端脚本 12 秒内没有完成初始化。\r\n" +
-                            "常见原因：WebView2 缓存损坏、GPU 进程异常、或脚本报错。\r\n\r\n" +
+                            "页面已经加载，但前端脚本 45 秒内没有完成初始化（已自动重试 37 次）。\r\n" +
+                            "常见原因：WebView2 缓存损坏、GPU 进程异常、或脚本报错。\r\n" +
+                            "可点「重试」重新加载；若反复出现，点「以兼容渲染重试」。\r\n\r\n" +
                             "日志：" + Path.Combine(Payload.DataDir, "logs", "server.log"),
                             true);
                     }
                 }
-                catch { }
             };
             _bootTimer.Start();
+        }
+
+        private void MarkPageReady()
+        {
+            if (_pageReady) return;
+            _pageReady = true;
+            StopBootWatchdog();
+            HideFatal();
+            try
+            {
+                if (_web != null) { _web.Visible = true; _web.BringToFront(); }
+            }
+            catch { }
         }
 
         private void StopBootWatchdog()
@@ -220,7 +253,19 @@ namespace TheLetheWorkbench
                 return;
             }
             StopBootWatchdog();
+            _bootDeadline = DateTime.UtcNow.AddSeconds(45);
             StartBootWatchdog();
+            CheckReadyOnce();
+        }
+
+        private async void CheckReadyOnce()
+        {
+            try
+            {
+                string r = await _web.CoreWebView2.ExecuteScriptAsync("Boolean(window.__WBS)");
+                if (string.Equals(r, "true", StringComparison.OrdinalIgnoreCase)) MarkPageReady();
+            }
+            catch { }
         }
 
         private async Task RebuildWebViewAsync(bool compat)
@@ -238,6 +283,7 @@ namespace TheLetheWorkbench
             }
             catch { }
 
+            _pageReady = false;
             HideFatal();
             CreateWebView();
             await BootAsync(compat);

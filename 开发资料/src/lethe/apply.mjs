@@ -365,7 +365,7 @@ export function saveCompiledBuff(letheRoot, { name, id, info = {}, displayName, 
   if (info.canBeDespelled !== undefined) ent.canBeDespelled = Boolean(info.canBeDespelled);
   if (info.maxStack != null) ent.maxStack = Math.max(1, Number(info.maxStack) || 1);
   if (info.maxTurn != null) ent.maxTurn = Number(info.maxTurn) || 1;
-  if (info.iconId !== undefined) ent.iconId = String(info.iconId || '');
+  if (info.iconId) ent.iconId = String(info.iconId);
 
   const refIds = (code && code.modules) || [];
   const { lines, missing } = moduleScripts(letheRoot, refIds);
