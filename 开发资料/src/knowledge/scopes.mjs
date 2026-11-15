@@ -227,6 +227,7 @@ export const TIMING_CONTAINERS = {
   ],
   "RoundStart": [
     "buff",
+    "passive",
     "skill"
   ],
   "SkillStaggerVictim": [

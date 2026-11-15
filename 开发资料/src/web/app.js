@@ -3152,6 +3152,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'mb-search') { S.mb.search = t.value; const pos = t.selectionStart || t.value.length; render(); refocus('mb-search', pos); return; }
   if (t.dataset && t.dataset.pinfo) { schedulePInfo(); return; }
       if (t.id === 'b-icon-file' && t.files && t.files[0]) { uploadBuffIcon(t.files[0]).catch((e) => toast(e.message, 'error')); return; }
+    if (t.id === 'mb-showall') { S.mb.showAll = Boolean(t.checked); render(); return; }
       if (t.dataset && t.dataset.binfo) { scheduleBInfo(); return; }
   if (t.dataset && t.dataset.info) { scheduleInfo(); }
 });
@@ -5298,7 +5299,7 @@ function mbPaletteHtml() {
   let items = [];
   const match = (s) => !q || String(s || '').toLowerCase().includes(q);
   if (cat === 'timing') {
-    items = (S.keywords?.timings || []).filter((t) => scopeAllowsTiming(t.en) && (match(t.en) || match(t.zh)))
+    items = (S.keywords?.timings || []).filter((t) => (S.mb.showAll || scopeAllowsTiming(t.en)) && (match(t.en) || match(t.zh)))
       .map((t) => '<button class="mb-item mi-timing" data-mb-drag="stmt" data-mb-kind="timing" data-mb-val="' + esc(t.en) + '"><b>' + esc(t.zh || t.en) + '</b><small>' + esc(t.en) + '</small></button>');
   } else if (cat === 'target') {
     const groups = [['single', '单目标'], ['multi', '多目标'], ['tag', '修饰标签（可多选，用 + 连接）']];
@@ -5320,7 +5321,7 @@ function mbPaletteHtml() {
     items.unshift('<button class="mb-item mi-assign" data-mb-drag="stmt" data-mb-kind="assign"><b>赋值：VALUE_x 设为 …</b><small>把结果存进寄存器</small></button>');
     items.push('<button class="mb-item mi-var" data-mb-drag="value" data-mb-kind="s" data-mb-val=""><b>文本</b><small>放进去后再点文字修改</small></button>');
   } else if (cat === 'action') {
-    items = mbRows('consequence').filter((r) => scopeAllowsCommand(r.name) && (match(r.name) || match(r.summary) || (r.aliasOf || []).some((a) => match(a))))
+    items = mbRows('consequence').filter((r) => (S.mb.showAll || scopeAllowsCommand(r.name)) && (match(r.name) || match(r.summary) || (r.aliasOf || []).some((a) => match(a))))
       .map((r) => '<button class="mb-item mi-cons" data-mb-drag="stmt" data-mb-kind="cons" data-mb-val="' + esc(r.name) + '"><b>' + esc(r.name) + '</b><small>' + esc((r.summary || '（英文原文档未收录说明）') + ((r.aliasOf && r.aliasOf.length) ? '（旧称：' + r.aliasOf.join(' / ') + '）' : '')) + '</small></button>');
   } else if (cat === 'cond') {
     items = [];
@@ -5369,14 +5370,15 @@ function mbPaletteHtml() {
     items = [fold('自定义Buff', custom.map((b) => ({ ...b, source: 'mod' })), true), fold('原版 Buff', vanilla, false)];
     if (!custom.length && !vanilla.length) items = ['<div class="mb-empty2">没有匹配的 Buff</div>'];
   } else {
-    items = mbRows('acquirer').filter((r) => r.name !== 'math' && scopeAllowsCommand(r.name) && (match(r.name) || match(r.summary) || (r.aliasOf || []).some((a) => match(a))))
+    items = mbRows('acquirer').filter((r) => r.name !== 'math' && (S.mb.showAll || scopeAllowsCommand(r.name)) && (match(r.name) || match(r.summary) || (r.aliasOf || []).some((a) => match(a))))
       .map((r) => '<button class="mb-item mi-acq" data-mb-drag="value" data-mb-kind="acq" data-mb-val="' + esc(r.name) + '"><b>' + esc(r.name) + '()</b><small>' + esc((r.summary || '（英文原文档未收录说明）') + ((r.aliasOf && r.aliasOf.length) ? '（旧称：' + r.aliasOf.join(' / ') + '）' : '')) + '</small></button>');
   }
   const carry = S.mb.carry ? '<div class="mb-carry">拿着：' + (S.mb.carry.type === 'value' ? '数值块' : '语句块') + ' · 点击画布或空位放下（Esc 取消）</div>' : '';
   return '<div class="mb-pal-body">'
     + '<nav class="mb-cats" aria-label="积木分类">' + tabs + '</nav>'
     + '<div class="mb-pal-main"><div class="mb-legend">金色=必填参数；灰色虚线=可选（可留空，游戏按默认处理）</div>'
-    + '<div class="mb-pal-head"><div class="mb-swrap"><input id="mb-search" class="search" placeholder="在本分类内搜索名称 / 说明 / 旧称" value="' + esc(S.mb.search) + '"></div></div>' + carry
+    + '<div class="mb-pal-head"><div class="mb-swrap"><input id="mb-search" class="search" placeholder="在本分类内搜索名称 / 说明 / 旧称" value="' + esc(S.mb.search) + '"></div>'
+    + '<label class="mb-showall" title="勾选后不按模块用途过滤，显示全部积木"><input type="checkbox" id="mb-showall"' + (S.mb.showAll ? ' checked' : '') + '> 显示全部</label></div>' + carry
     + '<div class="mb-items" id="mb-items">' + (items.join('') || '<div class="mb-empty2">没有匹配项</div>') + '</div>'
     + '</div></div>';
 }

@@ -2011,3 +2011,9 @@ select.mb-arg-enum.opt{border-color:#4a4438;background:rgba(120,110,95,.14)}
 .mb-loop-slot.mb-hot{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),0 0 12px rgba(198,161,91,.45);background:rgba(198,161,91,.12);color:var(--gold)}
 .mb-tag-drop.mb-hot{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),0 0 12px rgba(198,161,91,.45);background:rgba(198,161,91,.12)}
 /* @loop-block-v2:end */
+
+/* @mb-showall-v1:start */
+.mb-showall{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#A79780;padding:2px 2px 6px;user-select:none;cursor:pointer}
+.mb-showall input{accent-color:#C6A15B;cursor:pointer}
+.mb-showall:hover{color:#E3C07E}
+/* @mb-showall-v1:end */

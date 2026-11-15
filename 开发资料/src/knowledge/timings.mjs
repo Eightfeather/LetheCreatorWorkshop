@@ -87,7 +87,7 @@ export const ENGINE_TIMINGS = [
   {"id":82,"en":"SkillStaggerVictim","zh":"技能击晕目标时","src":"official"},
   {"id":83,"en":"OnFieldedFromBackup","zh":"从替补上场时","src":"official"},
   {"id":84,"en":"OnReturnFromRetreat","zh":"撤退归队时","src":"official"},
-  {"id":-1,"en":"RoundStart","zh":"回合开始","src":"game"},
+  {"id":-1,"en":"RoundStart","zh":"回合开始时","src":"game"},
   {"id":85,"en":"TrigData","zh":"","src":"official"},
   {"id":86,"en":"OverwriteMPDMG","zh":"MP/伤害覆盖时","src":"engine"},
   {"id":87,"en":"OverwriteChangeMP","zh":"MP变更覆盖时","src":"engine"},
