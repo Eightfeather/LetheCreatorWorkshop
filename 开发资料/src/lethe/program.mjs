@@ -32,7 +32,7 @@ function valueText(v, nested) {
   if (v.t === 'ctarget') {
     // 自定义目标：单位ID前缀 + 修饰标签连写 + 数量插在 $ 之前 + $关键词
     const uid = v.uid ? valueText(v.uid, true) : '';
-    const tags = (v.tags || []).map((x) => String((x && x.v) || '')).join('');
+    const tags = (Array.isArray(v.tags) ? v.tags : []).filter((x) => x && x.v && String(x.v).trim()).map((x) => String(x.v)).join('');
     const cnt = v.cnt ? valueText(v.cnt, true) : '';
     const kw = v.kw ? valueText(v.kw, true) : '';
     const core = (uid && uid !== '_' ? 'id' + uid : '') + tags;

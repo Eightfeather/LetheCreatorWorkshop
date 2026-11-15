@@ -493,7 +493,7 @@ function pushValue(raw, depth, budget) {
     // 「自定义目标」大积木：由多个修饰标签 + 数量 + 单位 ID + $关键词 组成，允许全空（保存前前端会提醒）
     const tags = (Array.isArray(raw.tags) ? raw.tags.slice(0, 12) : [])
       .map((x) => pushValue(x, depth + 1, budget))
-      .filter((x) => x && x.t === 'tag');
+      .filter((x) => x && x.t === 'tag' && String(x.v || '').trim());
     return {
       t,
       uid: raw.uid ? pushValue(raw.uid, depth + 1, budget) : null,

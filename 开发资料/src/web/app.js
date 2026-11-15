@@ -5136,7 +5136,7 @@ function mbValHtml(v, chain, slotType, opt) {
   const inner = (() => {
     if (v.t === 'tag') return '<span class="vb-tag-name" title="目标修饰标签">' + esc(String(v.v || '')) + '</span>';
     if (v.t === 'ctarget') {
-      const tags = Array.isArray(v.tags) ? v.tags : [];
+      const tags = (Array.isArray(v.tags) ? v.tags : []).filter((t) => t && typeof t === 'object' && t.v && String(t.v).trim());
       const tagHtml = tags.map((t, i) => '<span class="mb-tag-cap"><span>' + esc(String((t && t.v) || '')) + '</span>'
         + '<button class="mb-tag-x" data-mb-cttag="' + esc(chain + ':k' + i) + '" title="移除这个修饰标签">×</button></span>').join('');
       const zone = '<span class="mb-tag-drop' + (tags.length ? ' has' : '') + '" data-mb-ctdrop="' + esc(chain) + '" title="把「修饰标签」拖到这里，可以放多枚">'
@@ -6791,9 +6791,20 @@ document.addEventListener('click', (e) => {
   const ctTag = e.target.closest('[data-mb-cttag]');
   if (ctTag) {
     e.preventDefault();
-    const ref = mbAccess(ctTag.dataset.mbCttag);
-    const node = ref && ref.get();
-    if (node) { ref.set(null); render(); }
+    const raw = String(ctTag.dataset.mbCttag || '');
+    const m = /^(.*):k(\d+)$/.exec(raw);
+    if (m) {
+      const ref = mbAccess(m[1]);
+      const node = ref && ref.get();
+      if (node && Array.isArray(node.tags)) {
+        node.tags.splice(Number(m[2]), 1);
+        render();
+        toast('已移除修饰标签', 'warn');
+        return;
+      }
+    }
+    const ref2 = mbAccess(raw);
+    if (ref2) { ref2.set(null); render(); }
     return;
   }
   const clr = e.target.closest('[data-mb-clear]');
